@@ -273,7 +273,7 @@ impl RawSSTableWriter for SSTableWriterV1 {
         // If the current offset is too high, flush, and add this record to the index.
         //
         // Also reset the compression to a fresh state.
-        if self.file.relative_offset()? >= self.flush_every || self.meta.items == 0 {
+        if self.file.relative_offset()? + value.len() >= self.flush_every || self.meta.items == 0 {
             let offset = self.file.reset_compression_context()?;
             self.sparse_index.insert(key.to_owned(), offset);
         }
@@ -482,9 +482,6 @@ mod tests {
 
         writer.write_index().unwrap();
 
-        println!("sleeping {}", std::process::id());
-        std::thread::sleep(std::time::Duration::from_millis(10_000));
-
         let mut reader = MmapSSTableReader::new("/tmp/sstable_big").unwrap();
 
         for i in letters {
@@ -501,9 +498,5 @@ mod tests {
                 }
             }
         }
-
-        println!("sleeping, done");
-        std::thread::sleep(std::time::Duration::from_millis(10_000));
-
     }
 }
