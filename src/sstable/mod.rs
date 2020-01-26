@@ -199,7 +199,7 @@ pub trait RawSSTableWriter {
     fn close(self) -> Result<()>;
 }
 
-struct SSTableWriterV1 {
+pub struct SSTableWriterV1 {
     file: Box<dyn CompressionContextWriter<BufWriter<File>>>,
     meta: MetaV1_0,
     meta_start: usize,
@@ -209,7 +209,7 @@ struct SSTableWriterV1 {
 }
 
 impl SSTableWriterV1 {
-    fn new<P: AsRef<Path>>(path: P, options: Options) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, options: Options) -> Result<Self> {
         let file = File::create(path)?;
         let writer = BufWriter::new(file);
         let mut writer = PosWriter::new(writer, 0);
@@ -350,7 +350,7 @@ impl MmapSSTableReader {
             index.insert(key, value.0 as usize);
         }
 
-        dbg!(&index);
+        // dbg!(&index);
 
         Ok(MmapSSTableReader{
             meta: meta,
@@ -398,7 +398,7 @@ impl SSTableReader for MmapSSTableReader {
             let start_key = std::str::from_utf8(&data[..key_end])?;
             data = &data[key_end+1..];
             let value_length = bincode::deserialize::<Length>(data)?.0 as usize;
-            dbg!((start_key, value_length));
+            // dbg!((start_key, value_length));
             data = &data[value_length_encoded_size..];
             let value = &data[..value_length];
             if value.len() != value_length {
@@ -450,5 +450,60 @@ mod tests {
         assert_eq!(reader.get("foo").unwrap(), Some(b"some foo" as &[u8]));
         assert_eq!(reader.get("bar").unwrap(), Some(b"some bar" as &[u8]));
         assert_eq!(reader.get("foobar").unwrap(), None);
+    }
+
+    #[test]
+    fn bench_memory_usage() {
+        use std::collections::BTreeMap;
+
+        let mut writer = SSTableWriterV1::new("/tmp/sstable_big", Options::default()).unwrap();
+        let mut input = File::open("/dev/zero").unwrap();
+
+        let mut buf = [0; 1024];
+        use std::io::Read;
+
+        input.read(&mut buf).unwrap();
+
+        let letters = b"abcdefghijklmnopqrstuvwxyz";
+
+        for i in letters {
+            for j in letters {
+                for k in letters {
+                    for m in letters {
+                        // for n in letters {
+                            let key = [*i, *j, *k, *m];
+                            let skey = unsafe {std::str::from_utf8_unchecked(&key)};
+                            writer.set(skey, &buf).unwrap();
+                        // }
+                    }
+                }
+            }
+        }
+
+        writer.write_index().unwrap();
+
+        println!("sleeping {}", std::process::id());
+        std::thread::sleep(std::time::Duration::from_millis(10_000));
+
+        let mut reader = MmapSSTableReader::new("/tmp/sstable_big").unwrap();
+
+        for i in letters {
+            for j in letters {
+                for k in letters {
+                    for m in letters {
+                        // for n in letters {
+                            let key = [*i, *j, *k, *m];
+                            let skey = unsafe {std::str::from_utf8_unchecked(&key)};
+                            let val = reader.get(skey).unwrap().unwrap();
+                            assert_eq!(val.len(), 1024);
+                        // }
+                    }
+                }
+            }
+        }
+
+        println!("sleeping, done");
+        std::thread::sleep(std::time::Duration::from_millis(10_000));
+
     }
 }
