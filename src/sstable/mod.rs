@@ -151,11 +151,11 @@ mod tests {
         options.compression(Compression::None);
         write_btree_map(&map, "/tmp/sstable", Some(options)).unwrap();
 
-        let reader = reader::SSTableReader::new("/tmp/sstable").unwrap();
+        let mut reader = reader::SSTableReader::new("/tmp/sstable").unwrap();
 
-        assert_eq!(reader.get("foo").unwrap(), Some(b"some foo" as &[u8]));
-        assert_eq!(reader.get("bar").unwrap(), Some(b"some bar" as &[u8]));
-        assert_eq!(reader.get("foobar").unwrap(), None);
+        assert_eq!(reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some foo" as &[u8]));
+        assert_eq!(reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some bar" as &[u8]));
+        assert_eq!(reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()), None);
     }
 
     #[test]
@@ -187,7 +187,7 @@ mod tests {
 
         writer.write_index().unwrap();
 
-        let reader = reader::SSTableReader::new("/tmp/sstable_big").unwrap();
+        let mut reader = reader::SSTableReader::new("/tmp/sstable_big").unwrap();
 
         for i in letters {
             for j in letters {
@@ -197,7 +197,7 @@ mod tests {
                         let key = [*i, *j, *k, *m];
                         let skey = unsafe { std::str::from_utf8_unchecked(&key) };
                         let val = reader.get(skey).unwrap().unwrap();
-                        assert_eq!(val.len(), 1024);
+                        assert_eq!(val.as_bytes().len(), 1024);
                         // }
                     }
                 }

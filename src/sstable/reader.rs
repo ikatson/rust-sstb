@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, BufRead, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use bincode;
@@ -11,7 +11,29 @@ use memchr;
 use super::*;
 
 trait InnerReader {
-    fn get(&self, key: &str) -> Result<Option<&[u8]>>;
+    fn get(&mut self, key: &str) -> Result<Option<GetResult>>;
+}
+
+#[derive(Debug, PartialEq)]
+pub enum GetResult<'a> {
+    Ref(&'a [u8]),
+    Owned(Vec<u8>)
+}
+
+impl<'a> GetResult<'a> {
+    pub fn as_bytes(&self) -> &[u8] {
+        use GetResult::*;
+        match self {
+            Ref(b) => b,
+            Owned(b) => b
+        }
+    }
+}
+
+impl<'a> AsRef<[u8]> for GetResult<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
 }
 
 enum MetaData {
@@ -19,7 +41,6 @@ enum MetaData {
 }
 
 struct MetaResult {
-    version: Version,
     meta: MetaData,
     offset: usize,
 }
@@ -48,16 +69,13 @@ fn read_metadata(file: &mut File) -> Result<MetaResult> {
     file.seek(SeekFrom::Start(offset as u64))?;
 
     Ok(MetaResult {
-        version: version,
         meta: meta,
         offset: offset,
     })
 }
 
 struct MmapSSTableReaderV1_0 {
-    meta: MetaV1_0,
     mmap: memmap::Mmap,
-    data_start: u64,
     index_start: u64,
     // it's not &'static in reality, but it's bound to mmap's lifetime.
     // It will NOT work with compression.
@@ -96,9 +114,7 @@ impl MmapSSTableReaderV1_0 {
         // dbg!(&index);
 
         Ok(MmapSSTableReaderV1_0 {
-            meta: meta,
             mmap: mmap,
-            data_start: data_start,
             index_start: index_start,
             index: index,
         })
@@ -106,7 +122,7 @@ impl MmapSSTableReaderV1_0 {
 }
 
 impl InnerReader for MmapSSTableReaderV1_0 {
-    fn get(&self, key: &str) -> Result<Option<&[u8]>> {
+    fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
         use std::ops::Bound;
 
         let offset = {
@@ -151,11 +167,125 @@ impl InnerReader for MmapSSTableReaderV1_0 {
                 return Err(Error::InvalidData("corrupt or buggy sstable"));
             }
             if key == start_key {
-                return Ok(Some(value));
+                return Ok(Some(GetResult::Ref(value)));
             }
             data = &data[value_length..];
         }
         return Ok(None);
+    }
+}
+
+struct ZlibReaderV1_0 {
+    file: File,
+    meta: MetaV1_0,
+    data_start: u64,
+    index: BTreeMap<String, u64>,
+}
+
+impl ZlibReaderV1_0 {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File) -> Result<Self> {
+        let index_start = data_start + (meta.data_len as u64);
+
+        file.seek(SeekFrom::Start(index_start))?;
+
+        let file_buf_reader = BufReader::new(file);
+        let decoder = flate2::read::ZlibDecoder::new(file_buf_reader);
+        let mut buf_decoder = BufReader::new(decoder);
+        let mut buf = Vec::new();
+        let mut index = BTreeMap::new();
+
+        loop {
+            let size = buf_decoder.read_until(0, &mut buf)?;
+            if size == 0 {
+                // Index is read fully.
+                break;
+            }
+            if buf[size] != b'0' {
+                return Err(Error::InvalidData("corrupt file"))
+            }
+            let key = std::str::from_utf8(&buf[..size-1])?.to_owned();
+            let length = bincode::deserialize_from::<_, Length>(&mut buf_decoder)?.0;
+            // let mut value = Vec::with_capacity(length as usize);
+            // buf_decoder.read_exact(&mut value)?;
+            index.insert(key, length);
+        }
+
+        // TODO: check that the index size matches metadata
+
+        Ok(ZlibReaderV1_0{
+            file: buf_decoder.into_inner().into_inner().into_inner(),
+            data_start: data_start,
+            meta: meta,
+            index: index,
+        })
+    }
+}
+
+impl InnerReader for ZlibReaderV1_0 {
+    fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
+        use std::ops::Bound;
+
+        let offset = {
+            let mut iter_left = self
+                .index
+                .range::<str, _>((Bound::Unbounded, Bound::Included(key)));
+            let closest_left = iter_left.next_back();
+            match closest_left {
+                Some((_, offset)) => *offset,
+                None => return Ok(None),
+            }
+        };
+
+        let index_start = self.data_start + self.meta.data_len as u64;
+
+        let right_bound = {
+            let mut iter_right = self
+                .index
+                .range::<str, _>((Bound::Excluded(key), Bound::Unbounded));
+            let closest_right = iter_right.next_back();
+            match closest_right {
+                Some((_, offset)) => *offset,
+                None => index_start,
+            }
+        };
+
+        self.file.seek(SeekFrom::Start(offset))?;
+
+        let reader = BufReader::new(&mut self.file);
+        let zreader = flate2::read::ZlibDecoder::new(reader);
+        let mut zreader = BufReader::new(zreader);
+        let mut buf = Vec::with_capacity(4096);
+        loop {
+            let size = zreader.read_until(0, &mut buf)?;
+            if size == 0 {
+                return Ok(None)
+            }
+            if buf[size] != 0 {
+                return Err(Error::InvalidData("stream ended before reading the key"))
+            }
+            let bytes: &[u8] = &buf[..size-1];
+            if bytes > key.as_bytes() {
+                return Ok(None)
+            } else {
+                let length = bincode::deserialize_from::<_, Length>(&mut zreader)?.0;
+                if bytes == key.as_bytes() {
+                    let mut value = Vec::with_capacity(length as usize);
+                    zreader.read_exact(&mut value)?;
+                    return Ok(Some(GetResult::Owned(value)))
+                }
+
+                // just waste the data
+                let mut waste_buf = [0; 8192];
+                let mut remaining = length as usize;
+                while remaining > 0 {
+                    let l = zreader.read(&mut waste_buf[..remaining])?;
+                    if l == 0 {
+                        return Err(Error::InvalidData("unexpected EOF while reading the file"))
+                    }
+                    remaining -= l;
+                }
+            }
+        }
     }
 }
 
@@ -176,14 +306,14 @@ impl SSTableReader {
                 Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?)
             },
             Compression::Zlib => {
-                unimplemented!("zlib not implemented")
+                Box::new(ZlibReaderV1_0::new(meta, data_start, file)?)
             }
         };
         Ok(SSTableReader{
             inner: inner,
         })
     }
-    pub fn get(&self, key: &str) -> Result<Option<&[u8]>> {
+    pub fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
         self.inner.get(key)
     }
 }
