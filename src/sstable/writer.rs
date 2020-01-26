@@ -24,8 +24,7 @@ pub struct SSTableWriterV1 {
 impl SSTableWriterV1 {
     pub fn new<P: AsRef<Path>>(path: P, options: Options) -> Result<Self> {
         let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        let mut writer = PosWriter::new(writer, 0);
+        let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write(MAGIC)?;
         bincode::serialize_into(&mut writer, &VERSION_10)?;
 

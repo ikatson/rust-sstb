@@ -23,6 +23,7 @@ impl<W> PosWriter<W> {
 
 impl<W: Write> Write for PosWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        dbg!(buf);
         let l = self.w.write(buf)?;
         self.offset += l;
         Ok(l)

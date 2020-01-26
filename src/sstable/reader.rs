@@ -186,6 +186,9 @@ impl ZlibReaderV1_0 {
     fn new(meta: MetaV1_0, data_start: u64, mut file: File) -> Result<Self> {
         let index_start = data_start + (meta.data_len as u64);
 
+        dbg!(&meta);
+        dbg!(data_start);
+        dbg!(index_start);
         file.seek(SeekFrom::Start(index_start))?;
 
         let file_buf_reader = BufReader::new(file);

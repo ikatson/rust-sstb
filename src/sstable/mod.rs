@@ -140,6 +140,22 @@ mod tests {
     use std::fs::File;
 
     #[test]
+    fn test_zlib_stuff() {
+        use std::io::{BufWriter, Write};
+
+        let mut buf: Vec<u8> = Vec::new();
+        let enc = flate2::write::ZlibEncoder::new(&mut buf, flate2::Compression::default());
+        let mut bufenc = BufWriter::new(enc);
+        bufenc.write_all(b"foo").unwrap();
+        bufenc.flush().unwrap();
+        bufenc.write_all(b"\0").unwrap();
+        bufenc.flush().unwrap();
+        bufenc.write_all(b"some foo").unwrap();
+        let buf = bufenc.into_inner().unwrap().finish().unwrap();
+        dbg!(buf);
+    }
+
+    #[test]
     fn test_uncompressed_works() {
         use std::collections::BTreeMap;
 
