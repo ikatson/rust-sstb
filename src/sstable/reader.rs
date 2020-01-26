@@ -203,7 +203,7 @@ impl ZlibReaderV1_0 {
                 // Index is read fully.
                 break;
             }
-            if buf[size] != b'0' {
+            if buf[size-1] != b'0' {
                 return Err(Error::InvalidData("corrupt file"));
             }
             let key = std::str::from_utf8(&buf[..size - 1])?.to_owned();
