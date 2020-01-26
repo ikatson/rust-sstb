@@ -24,6 +24,7 @@
 // index structure
 //
 
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -48,7 +49,7 @@ struct Version {
     minor: u16,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 enum Compression {
     None,
     Zlib,
@@ -108,7 +109,7 @@ impl Default for Options {
 pub trait CompressionContextWriter<I: Write>: Write {
     fn relative_offset(&mut self) -> Result<usize>;
     fn reset_compression_context(&mut self) -> Result<usize>;
-    fn into_inner(self) -> Result<PosWriter<I>>;
+    fn into_inner(self: Box<Self>) -> Result<PosWriter<I>>;
 }
 
 struct UncompressedWriter<W> {
@@ -142,7 +143,7 @@ impl<W: Write> CompressionContextWriter<W> for UncompressedWriter<W> {
     fn reset_compression_context(&mut self) -> Result<usize> {
         Ok(self.writer.current_offset())
     }
-    fn into_inner(self) -> Result<PosWriter<W>> {
+    fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
         Ok(self.writer)
     }
 }
@@ -178,7 +179,7 @@ impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
     fn reset_compression_context(&mut self) -> Result<usize> {
         unimplemented!()
     }
-    fn into_inner(self) -> Result<PosWriter<W>> {
+    fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
         unimplemented!()
     }
 }
@@ -195,6 +196,7 @@ pub trait RawSSTableWriter {
 struct SSTableWriterV1 {
     file: Box<dyn CompressionContextWriter<BufWriter<File>>>,
     meta: MetaV1_0,
+    meta_start: usize,
     data_start: usize,
     flush_every: usize,
     sparse_index: BTreeMap<String, usize>,
@@ -209,7 +211,7 @@ fn bincode_err_into_io_err(e: bincode::Error) -> std::io::Error {
 
 impl SSTableWriterV1 {
     fn new<P: AsRef<Path>>(path: P, options: Options) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = File::create(path)?;
         let writer = BufWriter::new(file);
         let mut writer = PosWriter::new(writer, 0);
         writer.write(MAGIC)?;
@@ -218,6 +220,7 @@ impl SSTableWriterV1 {
         let meta_start = writer.current_offset();
 
         let mut meta = MetaV1_0::default();
+        meta.compression = options.compression;
         bincode::serialize_into(&mut writer, &meta).map_err(bincode_err_into_io_err)?;
 
         let data_start = writer.current_offset();
@@ -230,13 +233,39 @@ impl SSTableWriterV1 {
         Ok(Self {
             file: file,
             meta: meta,
+            meta_start: meta_start,
             data_start: data_start,
             flush_every: options.flush_every,
             sparse_index: BTreeMap::new(),
         })
     }
     fn write_index(self) -> Result<()> {
-        unimplemented!()
+        match self {
+            SSTableWriterV1 {
+                file,
+                mut meta,
+                meta_start,
+                data_start,
+                flush_every,
+                sparse_index,
+            } => {
+                let mut writer = file.into_inner()?;
+                let index_start = writer.current_offset();
+                for (key, value) in sparse_index.into_iter() {
+                    writer.write_all(key.as_bytes())?;
+                    writer.write_all(b"\0")?;
+                    bincode::serialize_into(&mut writer, &Length(value as u64)).map_err(bincode_err_into_io_err)?;
+                }
+                let index_len = writer.current_offset() - index_start;
+                meta.finished = true;
+                meta.index_len = index_len;
+                meta.data_len = index_start - data_start;
+                let mut writer = writer.into_inner();
+                writer.seek(SeekFrom::Start(meta_start as u64))?;
+                bincode::serialize_into(&mut writer, &meta).map_err(bincode_err_into_io_err)?;
+                Ok(())
+            },
+        }
     }
 }
 
@@ -250,8 +279,11 @@ impl RawSSTableWriter for SSTableWriterV1 {
             self.sparse_index.insert(key.to_owned(), offset);
         }
         self.file.write_all(key.as_bytes())?;
-        bincode::serialize_into(&mut self.file, &Length(value.len() as u64)).map_err(bincode_err_into_io_err)?;
-        self.file.write_all(value)
+        bincode::serialize_into(&mut self.file, &Length(value.len() as u64))
+            .map_err(bincode_err_into_io_err)?;
+        self.file.write_all(value)?;
+        self.meta.items += 1;
+        Ok(())
     }
 
     fn close(self) -> Result<()> {
@@ -263,19 +295,31 @@ pub fn open<P: AsRef<Path>>(filename: P) -> Box<dyn SSTableReader> {
     unimplemented!()
 }
 
-pub fn write<P: AsRef<Path>>(
-    map: BTreeMap<String, Vec<u8>>,
+pub fn write<D: AsRef<[u8]>, P: AsRef<Path>>(
+    map: &BTreeMap<String, D>,
     filename: P,
     options: Option<Options>,
 ) -> Result<()> {
     let options = options.unwrap_or_else(|| Options::default());
-    unimplemented!()
+    let mut writer = SSTableWriterV1::new(filename, options)?;
+    for (key, value) in map.iter() {
+        writer.set(key, value.as_ref())?;
+    }
+    writer.close()?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[test]
     fn it_works() {
-        //
+        use std::collections::BTreeMap;
+
+        let mut map = BTreeMap::new();
+        map.insert("foo".into(), b"some foo");
+        map.insert("bar".into(), b"some bar");
+
+        write(&mut map, "/tmp/sstable", None).unwrap()
     }
 }
