@@ -155,9 +155,18 @@ mod tests {
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
 
-        assert_eq!(reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some foo" as &[u8]));
-        assert_eq!(reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some bar" as &[u8]));
-        assert_eq!(reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()), None);
+        assert_eq!(
+            reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()),
+            Some(b"some foo" as &[u8])
+        );
+        assert_eq!(
+            reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()),
+            Some(b"some bar" as &[u8])
+        );
+        assert_eq!(
+            reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()),
+            None
+        );
     }
 
     #[test]
@@ -176,9 +185,18 @@ mod tests {
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
 
-        assert_eq!(reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some foo" as &[u8]));
-        assert_eq!(reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some bar" as &[u8]));
-        assert_eq!(reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()), None);
+        assert_eq!(
+            reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()),
+            Some(b"some foo" as &[u8])
+        );
+        assert_eq!(
+            reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()),
+            Some(b"some bar" as &[u8])
+        );
+        assert_eq!(
+            reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()),
+            None
+        );
     }
 
     #[test]

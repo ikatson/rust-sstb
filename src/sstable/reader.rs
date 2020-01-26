@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufReader, BufRead, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use bincode;
@@ -17,7 +17,7 @@ trait InnerReader {
 #[derive(Debug, PartialEq)]
 pub enum GetResult<'a> {
     Ref(&'a [u8]),
-    Owned(Vec<u8>)
+    Owned(Vec<u8>),
 }
 
 impl<'a> GetResult<'a> {
@@ -25,7 +25,7 @@ impl<'a> GetResult<'a> {
         use GetResult::*;
         match self {
             Ref(b) => b,
-            Owned(b) => b
+            Owned(b) => b,
         }
     }
 }
@@ -201,9 +201,9 @@ impl ZlibReaderV1_0 {
                 break;
             }
             if buf[size] != b'0' {
-                return Err(Error::InvalidData("corrupt file"))
+                return Err(Error::InvalidData("corrupt file"));
             }
-            let key = std::str::from_utf8(&buf[..size-1])?.to_owned();
+            let key = std::str::from_utf8(&buf[..size - 1])?.to_owned();
             let length = bincode::deserialize_from::<_, Length>(&mut buf_decoder)?.0;
             // let mut value = Vec::with_capacity(length as usize);
             // buf_decoder.read_exact(&mut value)?;
@@ -212,7 +212,7 @@ impl ZlibReaderV1_0 {
 
         // TODO: check that the index size matches metadata
 
-        Ok(ZlibReaderV1_0{
+        Ok(ZlibReaderV1_0 {
             file: buf_decoder.into_inner().into_inner().into_inner(),
             data_start: data_start,
             meta: meta,
@@ -238,7 +238,7 @@ impl InnerReader for ZlibReaderV1_0 {
 
         let index_start = self.data_start + self.meta.data_len as u64;
 
-        let right_bound = {
+        let _right_bound = {
             let mut iter_right = self
                 .index
                 .range::<str, _>((Bound::Excluded(key), Bound::Unbounded));
@@ -258,20 +258,20 @@ impl InnerReader for ZlibReaderV1_0 {
         loop {
             let size = zreader.read_until(0, &mut buf)?;
             if size == 0 {
-                return Ok(None)
+                return Ok(None);
             }
             if buf[size] != 0 {
-                return Err(Error::InvalidData("stream ended before reading the key"))
+                return Err(Error::InvalidData("stream ended before reading the key"));
             }
-            let bytes: &[u8] = &buf[..size-1];
+            let bytes: &[u8] = &buf[..size - 1];
             if bytes > key.as_bytes() {
-                return Ok(None)
+                return Ok(None);
             } else {
                 let length = bincode::deserialize_from::<_, Length>(&mut zreader)?.0;
                 if bytes == key.as_bytes() {
                     let mut value = Vec::with_capacity(length as usize);
                     zreader.read_exact(&mut value)?;
-                    return Ok(Some(GetResult::Owned(value)))
+                    return Ok(Some(GetResult::Owned(value)));
                 }
 
                 // just waste the data
@@ -280,7 +280,7 @@ impl InnerReader for ZlibReaderV1_0 {
                 while remaining > 0 {
                     let l = zreader.read(&mut waste_buf[..remaining])?;
                     if l == 0 {
-                        return Err(Error::InvalidData("unexpected EOF while reading the file"))
+                        return Err(Error::InvalidData("unexpected EOF while reading the file"));
                     }
                     remaining -= l;
                 }
@@ -302,16 +302,10 @@ impl SSTableReader {
             MetaData::V1_0(meta) => meta,
         };
         let inner: Box<dyn InnerReader> = match meta.compression {
-            Compression::None => {
-                Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?)
-            },
-            Compression::Zlib => {
-                Box::new(ZlibReaderV1_0::new(meta, data_start, file)?)
-            }
+            Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?),
+            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file)?),
         };
-        Ok(SSTableReader{
-            inner: inner,
-        })
+        Ok(SSTableReader { inner: inner })
     }
     pub fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
         self.inner.get(key)
