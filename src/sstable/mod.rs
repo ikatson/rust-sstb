@@ -28,7 +28,7 @@ use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
-use std::io::{Result, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::mem::MaybeUninit;
 use std::path::Path;
 
@@ -36,20 +36,25 @@ use bincode;
 use memmap;
 use serde::{Deserialize, Serialize};
 
+use memchr;
+
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
 
 mod poswriter;
-
+mod error;
+use error::Error;
 use poswriter::PosWriter;
 
-#[derive(Serialize, Deserialize)]
+type Result<T> = core::result::Result<T, Error>;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct Version {
     major: u16,
     minor: u16,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 enum Compression {
     None,
     Zlib,
@@ -61,10 +66,10 @@ impl Default for Compression {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Length(u64);
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 struct MetaV1_0 {
     data_len: usize,
     index_len: usize,
@@ -77,10 +82,11 @@ struct MetaV1_0 {
 }
 
 pub trait SSTableReader {
-    fn get(&self, key: &[u8]) -> Result<Option<&[u8]>>;
+    fn get(&self, key: &str) -> Result<Option<&[u8]>>;
     fn close(self) -> Result<()>;
 }
 
+#[derive(Debug)]
 pub struct Options {
     compression: Compression,
     flush_every: usize,
@@ -127,11 +133,11 @@ impl<W> UncompressedWriter<W> {
 }
 
 impl<W: Write> Write for UncompressedWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.writer.write(buf)
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.writer.flush()
     }
 }
@@ -153,11 +159,11 @@ struct ZlibWriter<W: Write> {
 }
 
 impl<W: Write> Write for ZlibWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         unimplemented!()
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         unimplemented!()
     }
 }
@@ -202,26 +208,19 @@ struct SSTableWriterV1 {
     sparse_index: BTreeMap<String, usize>,
 }
 
-fn bincode_err_into_io_err(e: bincode::Error) -> std::io::Error {
-    match *e {
-        bincode::ErrorKind::Io(e) => e,
-        e => std::io::Error::new(std::io::ErrorKind::Other, "error serializing"),
-    }
-}
-
 impl SSTableWriterV1 {
     fn new<P: AsRef<Path>>(path: P, options: Options) -> Result<Self> {
         let file = File::create(path)?;
         let writer = BufWriter::new(file);
         let mut writer = PosWriter::new(writer, 0);
         writer.write(MAGIC)?;
-        bincode::serialize_into(&mut writer, &VERSION_10).map_err(bincode_err_into_io_err)?;
+        bincode::serialize_into(&mut writer, &VERSION_10)?;
 
         let meta_start = writer.current_offset();
 
         let mut meta = MetaV1_0::default();
         meta.compression = options.compression;
-        bincode::serialize_into(&mut writer, &meta).map_err(bincode_err_into_io_err)?;
+        bincode::serialize_into(&mut writer, &meta)?;
 
         let data_start = writer.current_offset();
 
@@ -254,7 +253,7 @@ impl SSTableWriterV1 {
                 for (key, value) in sparse_index.into_iter() {
                     writer.write_all(key.as_bytes())?;
                     writer.write_all(b"\0")?;
-                    bincode::serialize_into(&mut writer, &Length(value as u64)).map_err(bincode_err_into_io_err)?;
+                    bincode::serialize_into(&mut writer, &Length(value as u64))?;
                 }
                 let index_len = writer.current_offset() - index_start;
                 meta.finished = true;
@@ -262,7 +261,7 @@ impl SSTableWriterV1 {
                 meta.data_len = index_start - data_start;
                 let mut writer = writer.into_inner();
                 writer.seek(SeekFrom::Start(meta_start as u64))?;
-                bincode::serialize_into(&mut writer, &meta).map_err(bincode_err_into_io_err)?;
+                bincode::serialize_into(&mut writer, &meta)?;
                 Ok(())
             },
         }
@@ -274,13 +273,12 @@ impl RawSSTableWriter for SSTableWriterV1 {
         // If the current offset is too high, flush, and add this record to the index.
         //
         // Also reset the compression to a fresh state.
-        if self.file.relative_offset()? >= self.flush_every {
+        if self.file.relative_offset()? >= self.flush_every || self.meta.items == 0 {
             let offset = self.file.reset_compression_context()?;
             self.sparse_index.insert(key.to_owned(), offset);
         }
         self.file.write_all(key.as_bytes())?;
-        bincode::serialize_into(&mut self.file, &Length(value.len() as u64))
-            .map_err(bincode_err_into_io_err)?;
+        bincode::serialize_into(&mut self.file, &Length(value.len() as u64))?;
         self.file.write_all(value)?;
         self.meta.items += 1;
         Ok(())
@@ -289,6 +287,115 @@ impl RawSSTableWriter for SSTableWriterV1 {
     fn close(self) -> Result<()> {
         self.write_index()
     }
+}
+
+pub struct MmapSSTableReader {
+    meta: MetaV1_0,
+    mmap: memmap::Mmap,
+    data_start: u64,
+    index_start: u64,
+    // it's not &'static in reality, but it's bound to mmap's lifetime.
+    // It will NOT work with compression.
+    index: BTreeMap<&'static str, usize>
+}
+
+impl MmapSSTableReader {
+    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
+        let file = File::open(filename)?;
+        let mmap = unsafe {memmap::MmapOptions::new().map(&file)?};
+
+        let version_offset = MAGIC.len();
+
+        if &mmap[0..version_offset] != MAGIC {
+            return Err(Error::invalid_data("not an sstable, magic does not match"))
+        }
+
+        let version = bincode::deserialize(&mmap[version_offset..])?;
+        dbg!(&version);
+
+        if version != VERSION_10 {
+            return Err(Error::UnsupportedVersion(version));
+        }
+
+        let meta_offset = (version_offset as u64) + bincode::serialized_size(&version)?;
+        let meta: MetaV1_0 = bincode::deserialize(&mmap[meta_offset as usize..])?;
+        dbg!(&meta);
+        let meta_size = bincode::serialized_size(&meta)?;
+
+        let data_start = meta_offset + meta_size;
+
+        let mut index = BTreeMap::new();
+
+        let index_start = data_start + (meta.data_len as u64);
+
+        let mut index_data = &mmap[(index_start as usize)..];
+        if index_data.len() != meta.index_len {
+            return Err(Error::InvalidData("invalid index length"))
+        }
+
+        while index_data.len() > 0 {
+            let string_end = memchr::memchr(b'\0', index_data);
+            let zerobyte = match string_end {
+                Some(idx) => idx,
+                None => return Err(Error::InvalidData("corrupt index"))
+            };
+            let key = std::str::from_utf8(&index_data[..zerobyte])?;
+            // Make it &'static
+            let key: &'static str = unsafe {&*(key as *const str)};
+            let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
+            index_data = &index_data[zerobyte+1..];
+            let value: Length = bincode::deserialize(&index_data[..value_length_encoded_size])?;
+            index_data = &index_data[value_length_encoded_size..];
+            index.insert(key, value.0 as usize);
+        }
+
+        dbg!(&index);
+
+        Ok(MmapSSTableReader{
+            meta: meta,
+            mmap: mmap,
+            data_start: data_start,
+            index_start: index_start,
+            index: index,
+        })
+    }
+}
+
+impl SSTableReader for MmapSSTableReader {
+    fn get(&self, key: &str) -> Result<Option<&[u8]>> {
+        use std::ops::Bound;
+        let mut iter = self.index.range::<&str, _>((Bound::Unbounded, Bound::Included(key)));
+        let closest = iter.next_back();
+        let (start_key, offset) = match closest {
+            Some((start_key, offset)) => (*start_key, *offset),
+            None => return Ok(None)
+        };
+
+        // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
+        let mut data = &self.mmap[offset..];
+
+        let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
+
+        while data.len() > 0 && start_key <= key {
+            let key_end = match memchr::memchr(b'\0', data) {
+                Some(idx) => idx as usize,
+                None => return Err(Error::InvalidData("corrupt or buggy sstable"))
+            };
+            let start_key = std::str::from_utf8(&data[..key_end])?;
+            let data = &data[key_end+1..];
+            let value_length: Length = bincode::deserialize(data)?;
+            let data = &data[value_length_encoded_size..];
+            let value = &data[..value_length.0 as usize];
+            if value.len() != value_length.0 as usize {
+                return Err(Error::InvalidData("corrupt or buggy sstable"));
+            }
+            if key == start_key {
+                return Ok(Some(value))
+            }
+        }
+        return Ok(None)
+    }
+    fn close(self) -> Result<()> { unimplemented!() }
 }
 
 pub fn open<P: AsRef<Path>>(filename: P) -> Box<dyn SSTableReader> {
@@ -320,6 +427,12 @@ mod tests {
         map.insert("foo".into(), b"some foo");
         map.insert("bar".into(), b"some bar");
 
-        write(&mut map, "/tmp/sstable", None).unwrap()
+        write(&mut map, "/tmp/sstable", None).unwrap();
+
+        let reader = MmapSSTableReader::new("/tmp/sstable").unwrap();
+
+        assert_eq!(reader.get("foo").unwrap(), Some(b"some foo" as &[u8]));
+        assert_eq!(reader.get("bar").unwrap(), Some(b"some bar" as &[u8]));
+        assert_eq!(reader.get("foobar").unwrap(), None);
     }
 }

@@ -1,5 +1,6 @@
 use std::io::{Result, Write};
 
+#[derive(Debug)]
 pub struct PosWriter<W> {
     w: W,
     offset: usize,
