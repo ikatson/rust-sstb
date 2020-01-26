@@ -143,15 +143,38 @@ mod tests {
     fn test_uncompressed_works() {
         use std::collections::BTreeMap;
 
+        let filename = "/tmp/sstable";
+
         let mut map = BTreeMap::new();
         map.insert("foo".into(), b"some foo");
         map.insert("bar".into(), b"some bar");
 
         let mut options = Options::default();
         options.compression(Compression::None);
-        write_btree_map(&map, "/tmp/sstable", Some(options)).unwrap();
+        write_btree_map(&map, filename, Some(options)).unwrap();
 
-        let mut reader = reader::SSTableReader::new("/tmp/sstable").unwrap();
+        let mut reader = reader::SSTableReader::new(filename).unwrap();
+
+        assert_eq!(reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some foo" as &[u8]));
+        assert_eq!(reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some bar" as &[u8]));
+        assert_eq!(reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()), None);
+    }
+
+    #[test]
+    fn test_compressed_works() {
+        use std::collections::BTreeMap;
+
+        let filename = "/tmp/sstable_zlib";
+
+        let mut map = BTreeMap::new();
+        map.insert("foo".into(), b"some foo");
+        map.insert("bar".into(), b"some bar");
+
+        let mut options = Options::default();
+        options.compression(Compression::Zlib);
+        write_btree_map(&map, filename, Some(options)).unwrap();
+
+        let mut reader = reader::SSTableReader::new(filename).unwrap();
 
         assert_eq!(reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some foo" as &[u8]));
         assert_eq!(reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()), Some(b"some bar" as &[u8]));
