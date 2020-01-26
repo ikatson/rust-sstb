@@ -365,19 +365,32 @@ impl MmapSSTableReader {
 impl SSTableReader for MmapSSTableReader {
     fn get(&self, key: &str) -> Result<Option<&[u8]>> {
         use std::ops::Bound;
-        let mut iter = self.index.range::<&str, _>((Bound::Unbounded, Bound::Included(key)));
-        let closest = iter.next_back();
-        let (start_key, offset) = match closest {
-            Some((start_key, offset)) => (*start_key, *offset),
-            None => return Ok(None)
+
+
+        let offset = {
+            let mut iter_left = self.index.range::<&str, _>((Bound::Unbounded, Bound::Included(key)));
+            let closest_left = iter_left.next_back();
+            match closest_left {
+                Some((_, offset)) => *offset,
+                None => return Ok(None)
+            }
+        };
+
+        let right_bound = {
+            let mut iter_right = self.index.range::<&str, _>((Bound::Excluded(key), Bound::Unbounded));
+            let closest_right = iter_right.next_back();
+            match closest_right {
+                Some((_, offset)) => *offset,
+                None => self.index_start as usize
+            }
         };
 
         // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
-        let mut data = &self.mmap[offset..self.index_start as usize];
+        let mut data = &self.mmap[offset..right_bound];
 
         let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
 
-        while data.len() > 0 && start_key <= key {
+        while data.len() > 0 {
             let key_end = match memchr::memchr(b'\0', data) {
                 Some(idx) => idx as usize,
                 None => return Err(Error::InvalidData("corrupt or buggy sstable"))
@@ -398,7 +411,7 @@ impl SSTableReader for MmapSSTableReader {
         }
         return Ok(None)
     }
-    fn close(self) -> Result<()> { unimplemented!() }
+    fn close(self) -> Result<()> {Ok(())}
 }
 
 pub fn open<P: AsRef<Path>>(filename: P) -> Box<dyn SSTableReader> {
