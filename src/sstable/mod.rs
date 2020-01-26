@@ -278,6 +278,7 @@ impl RawSSTableWriter for SSTableWriterV1 {
             self.sparse_index.insert(key.to_owned(), offset);
         }
         self.file.write_all(key.as_bytes())?;
+        self.file.write_all(b"\0")?;
         bincode::serialize_into(&mut self.file, &Length(value.len() as u64))?;
         self.file.write_all(value)?;
         self.meta.items += 1;
@@ -372,7 +373,7 @@ impl SSTableReader for MmapSSTableReader {
         };
 
         // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
-        let mut data = &self.mmap[offset..];
+        let mut data = &self.mmap[offset..self.index_start as usize];
 
         let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
 
@@ -382,16 +383,18 @@ impl SSTableReader for MmapSSTableReader {
                 None => return Err(Error::InvalidData("corrupt or buggy sstable"))
             };
             let start_key = std::str::from_utf8(&data[..key_end])?;
-            let data = &data[key_end+1..];
-            let value_length: Length = bincode::deserialize(data)?;
-            let data = &data[value_length_encoded_size..];
-            let value = &data[..value_length.0 as usize];
-            if value.len() != value_length.0 as usize {
+            data = &data[key_end+1..];
+            let value_length = bincode::deserialize::<Length>(data)?.0 as usize;
+            dbg!((start_key, value_length));
+            data = &data[value_length_encoded_size..];
+            let value = &data[..value_length];
+            if value.len() != value_length {
                 return Err(Error::InvalidData("corrupt or buggy sstable"));
             }
             if key == start_key {
                 return Ok(Some(value))
             }
+            data = &data[value_length..];
         }
         return Ok(None)
     }
