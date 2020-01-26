@@ -208,7 +208,8 @@ impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
         Ok(offset)
     }
     fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
-        unimplemented!()
+        let encoder = unsafe {self.encoder.assume_init()};
+        Ok(encoder.flush_finish()?)
     }
 }
 
@@ -267,21 +268,21 @@ impl SSTableWriterV1 {
                 mut meta,
                 meta_start,
                 data_start,
-                flush_every,
+                flush_every: _,
                 sparse_index,
             } => {
-                let mut writer = file.into_inner()?;
-                let index_start = writer.current_offset();
+                let mut writer = file;
+                let index_start = writer.reset_compression_context()?;
                 for (key, value) in sparse_index.into_iter() {
                     writer.write_all(key.as_bytes())?;
                     writer.write_all(b"\0")?;
                     bincode::serialize_into(&mut writer, &Length(value as u64))?;
                 }
-                let index_len = writer.current_offset() - index_start;
+                let index_len = writer.reset_compression_context()? - index_start;
                 meta.finished = true;
                 meta.index_len = index_len;
                 meta.data_len = index_start - data_start;
-                let mut writer = writer.into_inner();
+                let mut writer = writer.into_inner()?.into_inner();
                 writer.seek(SeekFrom::Start(meta_start as u64))?;
                 bincode::serialize_into(&mut writer, &meta)?;
                 Ok(())
