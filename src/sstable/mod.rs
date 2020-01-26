@@ -24,7 +24,7 @@
 // index structure
 //
 
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -49,7 +49,7 @@ use poswriter::PosWriter;
 type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-struct Version {
+pub struct Version {
     major: u16,
     minor: u16,
 }
@@ -156,23 +156,39 @@ impl<W: Write> CompressionContextWriter<W> for UncompressedWriter<W> {
 
 struct ZlibWriter<W: Write> {
     encoder: MaybeUninit<flate2::write::ZlibEncoder<PosWriter<W>>>,
+    initial_offset: usize,
+}
+
+impl<W: Write> ZlibWriter<W> {
+    unsafe fn get_mut_encoder(&mut self) -> &mut flate2::write::ZlibEncoder<PosWriter<W>> {
+        &mut *self.encoder.as_mut_ptr()
+    }
+    fn get_flushed_writer(&mut self) -> Result<&PosWriter<W>> {
+        let e = unsafe {self.get_mut_encoder()};
+        e.flush()?;
+        Ok(e.get_ref())
+    }
 }
 
 impl<W: Write> Write for ZlibWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        unimplemented!()
+        let e = unsafe {self.get_mut_encoder()};
+        e.write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        unimplemented!()
+        let e = unsafe {self.get_mut_encoder()};
+        e.flush()
     }
 }
 
 impl<W: Write> ZlibWriter<W> {
     fn new(w: PosWriter<W>) -> Self {
         let pos_writer = w;
+        let initial_offset = pos_writer.current_offset();
         let encoder = flate2::write::ZlibEncoder::new(pos_writer, flate2::Compression::default());
         ZlibWriter {
+            initial_offset: initial_offset,
             encoder: MaybeUninit::new(encoder),
         }
     }
@@ -180,13 +196,20 @@ impl<W: Write> ZlibWriter<W> {
 
 impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
     fn relative_offset(&mut self) -> Result<usize> {
-        unimplemented!()
+        let off = self.initial_offset;
+        let w = self.get_flushed_writer()?;
+        Ok(off - w.current_offset())
     }
     fn reset_compression_context(&mut self) -> Result<usize> {
-        unimplemented!()
+        let encoder = unsafe {std::mem::replace(&mut self.encoder, MaybeUninit::uninit()).assume_init()};
+        let writer = encoder.flush_finish()?;
+        let offset = writer.current_offset();
+        self.encoder = MaybeUninit::new(flate2::write::ZlibEncoder::new(writer, flate2::Compression::default()));
+        Ok(offset)
     }
     fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
-        unimplemented!()
+        let encoder = unsafe {std::mem::replace(&mut self.encoder, MaybeUninit::uninit()).assume_init()};
+        let writer = encoder.flush_finish()?;
     }
 }
 
