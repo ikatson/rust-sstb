@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-
+use std::io::{BufReader, Seek, SeekFrom, Read};
 use std::path::Path;
 
 use bincode;
@@ -8,12 +8,49 @@ use memmap;
 
 use memchr;
 
-const MAGIC: &[u8] = b"\x80LSM";
-const VERSION_10: Version = Version { major: 1, minor: 0 };
-
 use super::*;
 
 type Result<T> = core::result::Result<T, Error>;
+
+enum MetaData {
+    V1_0(MetaV1_0)
+}
+
+struct MetaResult {
+    version: Version,
+    meta: MetaData,
+    offset: usize,
+}
+
+fn read_metadata(file: &mut File) -> Result<MetaResult> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut reader = posreader::PosReader::new(BufReader::new(file), 0);
+    let mut buf = [0; MAGIC.len()];
+    if reader.read(&mut buf)? != MAGIC.len() {
+        return Err(Error::InvalidData("not an sstable"));
+    }
+    if buf != MAGIC {
+        return Err(Error::InvalidData("not an sstable"));
+    }
+    let version: Version = bincode::deserialize_from(&mut reader)?;
+    let meta = match version {
+        VERSION_10 => {
+            let meta: MetaV1_0 = bincode::deserialize_from(&mut reader)?;
+            MetaData::V1_0(meta)
+        },
+        _ => return Err(Error::UnsupportedVersion(version))
+    };
+
+    let offset = reader.current_offset();
+    let file = reader.into_inner().into_inner();
+    file.seek(SeekFrom::Start(offset as u64))?;
+
+    Ok(MetaResult{
+        version: version,
+        meta: meta,
+        offset: offset,
+    })
+}
 
 pub struct MmapSSTableReader {
     meta: MetaV1_0,
@@ -27,28 +64,14 @@ pub struct MmapSSTableReader {
 
 impl MmapSSTableReader {
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
-        let file = File::open(filename)?;
-        let mmap = unsafe { memmap::MmapOptions::new().map(&file)? };
-
-        let version_offset = MAGIC.len();
-
-        if &mmap[0..version_offset] != MAGIC {
-            return Err(Error::InvalidData("not an sstable, magic does not match"));
-        }
-
-        let version = bincode::deserialize(&mmap[version_offset..])?;
-        dbg!(&version);
-
-        if version != VERSION_10 {
-            return Err(Error::UnsupportedVersion(version));
-        }
-
-        let meta_offset = (version_offset as u64) + bincode::serialized_size(&version)?;
-        let meta: MetaV1_0 = bincode::deserialize(&mmap[meta_offset as usize..])?;
-        dbg!(&meta);
-        let meta_size = bincode::serialized_size(&meta)?;
-
-        let data_start = meta_offset + meta_size;
+        let mut file = File::open(filename)?;
+        let meta = read_metadata(&mut file)?;
+        let data_start = meta.offset as u64;
+        let meta = match meta.meta {
+            MetaData::V1_0(meta) => meta,
+            // _ => return Err(Error::UnsupportedVersion(meta.version))
+        };
+        let mmap = unsafe {memmap::MmapOptions::new().map(&mut file)}?;
 
         let mut index = BTreeMap::new();
 

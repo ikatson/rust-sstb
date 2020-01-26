@@ -38,6 +38,7 @@ const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
 
 mod error;
+mod posreader;
 mod poswriter;
 mod reader;
 mod writer;
@@ -45,7 +46,7 @@ use error::Error;
 
 type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Version {
     major: u16,
     minor: u16,
@@ -122,7 +123,7 @@ pub fn open<P: AsRef<Path>>(_filename: P) -> Box<dyn SSTableReader> {
     unimplemented!()
 }
 
-pub fn write<D: AsRef<[u8]>, P: AsRef<Path>>(
+pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
     map: &BTreeMap<String, D>,
     filename: P,
     options: Option<Options>,
@@ -150,7 +151,7 @@ mod tests {
         map.insert("foo".into(), b"some foo");
         map.insert("bar".into(), b"some bar");
 
-        write(&mut map, "/tmp/sstable", None).unwrap();
+        write_btree_map(&map, "/tmp/sstable", None).unwrap();
 
         let reader = reader::MmapSSTableReader::new("/tmp/sstable").unwrap();
 
