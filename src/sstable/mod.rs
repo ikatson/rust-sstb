@@ -208,8 +208,7 @@ impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
         Ok(offset)
     }
     fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
-        let encoder = unsafe {std::mem::replace(&mut self.encoder, MaybeUninit::uninit()).assume_init()};
-        let writer = encoder.flush_finish()?;
+        unimplemented!()
     }
 }
 
