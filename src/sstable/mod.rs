@@ -37,6 +37,7 @@ use memchr;
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
 
+mod compress_ctx_writer;
 mod error;
 mod posreader;
 mod poswriter;
@@ -79,11 +80,6 @@ struct MetaV1_0 {
     checksum: u32,
 }
 
-pub trait SSTableReader {
-    fn get(&self, key: &str) -> Result<Option<&[u8]>>;
-    fn close(self) -> Result<()>;
-}
-
 pub trait RawSSTableWriter {
     /// Set the key to the value. This method MUST be called in the sorted
     /// order.
@@ -119,7 +115,7 @@ impl Default for Options {
     }
 }
 
-pub fn open<P: AsRef<Path>>(_filename: P) -> Box<dyn SSTableReader> {
+pub fn open<P: AsRef<Path>>(_filename: P) -> reader::SSTableReader {
     unimplemented!()
 }
 
@@ -144,16 +140,18 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    fn it_works() {
+    fn test_uncompressed_works() {
         use std::collections::BTreeMap;
 
         let mut map = BTreeMap::new();
         map.insert("foo".into(), b"some foo");
         map.insert("bar".into(), b"some bar");
 
-        write_btree_map(&map, "/tmp/sstable", None).unwrap();
+        let mut options = Options::default();
+        options.compression(Compression::None);
+        write_btree_map(&map, "/tmp/sstable", Some(options)).unwrap();
 
-        let reader = reader::MmapSSTableReader::new("/tmp/sstable").unwrap();
+        let reader = reader::SSTableReader::new("/tmp/sstable").unwrap();
 
         assert_eq!(reader.get("foo").unwrap(), Some(b"some foo" as &[u8]));
         assert_eq!(reader.get("bar").unwrap(), Some(b"some bar" as &[u8]));
@@ -189,7 +187,7 @@ mod tests {
 
         writer.write_index().unwrap();
 
-        let reader = reader::MmapSSTableReader::new("/tmp/sstable_big").unwrap();
+        let reader = reader::SSTableReader::new("/tmp/sstable_big").unwrap();
 
         for i in letters {
             for j in letters {

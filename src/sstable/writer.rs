@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::{Seek, SeekFrom, Write};
-use std::mem::MaybeUninit;
+
 use std::path::Path;
 
 use bincode;
@@ -10,110 +10,7 @@ use bincode;
 use super::*;
 use poswriter::PosWriter;
 
-pub trait CompressionContextWriter<I: Write>: Write {
-    fn relative_offset(&mut self) -> Result<usize>;
-    fn reset_compression_context(&mut self) -> Result<usize>;
-    fn into_inner(self: Box<Self>) -> Result<PosWriter<I>>;
-}
-
-struct UncompressedWriter<W> {
-    writer: PosWriter<W>,
-    initial: usize,
-}
-
-impl<W> UncompressedWriter<W> {
-    pub fn new(writer: PosWriter<W>) -> Self {
-        UncompressedWriter {
-            initial: writer.current_offset(),
-            writer: writer,
-        }
-    }
-}
-
-impl<W: Write> Write for UncompressedWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.writer.write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.writer.flush()
-    }
-}
-
-impl<W: Write> CompressionContextWriter<W> for UncompressedWriter<W> {
-    fn relative_offset(&mut self) -> Result<usize> {
-        Ok(self.writer.current_offset() - self.initial)
-    }
-    fn reset_compression_context(&mut self) -> Result<usize> {
-        Ok(self.writer.current_offset())
-    }
-    fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
-        Ok(self.writer)
-    }
-}
-
-struct ZlibWriter<W: Write> {
-    encoder: MaybeUninit<flate2::write::ZlibEncoder<PosWriter<W>>>,
-    initial_offset: usize,
-}
-
-impl<W: Write> ZlibWriter<W> {
-    unsafe fn get_mut_encoder(&mut self) -> &mut flate2::write::ZlibEncoder<PosWriter<W>> {
-        &mut *self.encoder.as_mut_ptr()
-    }
-    fn get_flushed_writer(&mut self) -> Result<&PosWriter<W>> {
-        let e = unsafe { self.get_mut_encoder() };
-        e.flush()?;
-        Ok(e.get_ref())
-    }
-}
-
-impl<W: Write> Write for ZlibWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let e = unsafe { self.get_mut_encoder() };
-        e.write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        let e = unsafe { self.get_mut_encoder() };
-        e.flush()
-    }
-}
-
-impl<W: Write> ZlibWriter<W> {
-    fn new(w: PosWriter<W>) -> Self {
-        let pos_writer = w;
-        let initial_offset = pos_writer.current_offset();
-        let encoder = flate2::write::ZlibEncoder::new(pos_writer, flate2::Compression::default());
-        ZlibWriter {
-            initial_offset: initial_offset,
-            encoder: MaybeUninit::new(encoder),
-        }
-    }
-}
-
-impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
-    fn relative_offset(&mut self) -> Result<usize> {
-        let off = self.initial_offset;
-        let w = self.get_flushed_writer()?;
-        Ok(off - w.current_offset())
-    }
-    fn reset_compression_context(&mut self) -> Result<usize> {
-        let encoder =
-            unsafe { std::mem::replace(&mut self.encoder, MaybeUninit::uninit()).assume_init() };
-        let writer = encoder.flush_finish()?;
-        let offset = writer.current_offset();
-        self.encoder = MaybeUninit::new(flate2::write::ZlibEncoder::new(
-            writer,
-            flate2::Compression::default(),
-        ));
-        Ok(offset)
-    }
-    fn into_inner(self: Box<Self>) -> Result<PosWriter<W>> {
-        let encoder = unsafe { self.encoder.assume_init() };
-        Ok(encoder.flush_finish()?)
-    }
-}
+use compress_ctx_writer::*;
 
 pub struct SSTableWriterV1 {
     file: Box<dyn CompressionContextWriter<BufWriter<File>>>,

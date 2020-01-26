@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufReader, Seek, SeekFrom, Read};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use bincode;
@@ -10,10 +10,12 @@ use memchr;
 
 use super::*;
 
-type Result<T> = core::result::Result<T, Error>;
+trait InnerReader {
+    fn get(&self, key: &str) -> Result<Option<&[u8]>>;
+}
 
 enum MetaData {
-    V1_0(MetaV1_0)
+    V1_0(MetaV1_0),
 }
 
 struct MetaResult {
@@ -37,22 +39,22 @@ fn read_metadata(file: &mut File) -> Result<MetaResult> {
         VERSION_10 => {
             let meta: MetaV1_0 = bincode::deserialize_from(&mut reader)?;
             MetaData::V1_0(meta)
-        },
-        _ => return Err(Error::UnsupportedVersion(version))
+        }
+        _ => return Err(Error::UnsupportedVersion(version)),
     };
 
     let offset = reader.current_offset();
     let file = reader.into_inner().into_inner();
     file.seek(SeekFrom::Start(offset as u64))?;
 
-    Ok(MetaResult{
+    Ok(MetaResult {
         version: version,
         meta: meta,
         offset: offset,
     })
 }
 
-pub struct MmapSSTableReader {
+struct MmapSSTableReaderV1_0 {
     meta: MetaV1_0,
     mmap: memmap::Mmap,
     data_start: u64,
@@ -62,16 +64,9 @@ pub struct MmapSSTableReader {
     index: BTreeMap<&'static str, usize>,
 }
 
-impl MmapSSTableReader {
-    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
-        let mut file = File::open(filename)?;
-        let meta = read_metadata(&mut file)?;
-        let data_start = meta.offset as u64;
-        let meta = match meta.meta {
-            MetaData::V1_0(meta) => meta,
-            // _ => return Err(Error::UnsupportedVersion(meta.version))
-        };
-        let mmap = unsafe {memmap::MmapOptions::new().map(&mut file)}?;
+impl MmapSSTableReaderV1_0 {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File) -> Result<Self> {
+        let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
 
         let mut index = BTreeMap::new();
 
@@ -100,7 +95,7 @@ impl MmapSSTableReader {
 
         // dbg!(&index);
 
-        Ok(MmapSSTableReader {
+        Ok(MmapSSTableReaderV1_0 {
             meta: meta,
             mmap: mmap,
             data_start: data_start,
@@ -110,7 +105,7 @@ impl MmapSSTableReader {
     }
 }
 
-impl SSTableReader for MmapSSTableReader {
+impl InnerReader for MmapSSTableReaderV1_0 {
     fn get(&self, key: &str) -> Result<Option<&[u8]>> {
         use std::ops::Bound;
 
@@ -162,7 +157,33 @@ impl SSTableReader for MmapSSTableReader {
         }
         return Ok(None);
     }
-    fn close(self) -> Result<()> {
-        Ok(())
+}
+
+pub struct SSTableReader {
+    inner: Box<dyn InnerReader>,
+}
+
+impl SSTableReader {
+    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
+        let mut file = File::open(filename)?;
+        let meta = read_metadata(&mut file)?;
+        let data_start = meta.offset as u64;
+        let meta = match meta.meta {
+            MetaData::V1_0(meta) => meta,
+        };
+        let inner: Box<dyn InnerReader> = match meta.compression {
+            Compression::None => {
+                Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?)
+            },
+            Compression::Zlib => {
+                unimplemented!("zlib not implemented")
+            }
+        };
+        Ok(SSTableReader{
+            inner: inner,
+        })
+    }
+    pub fn get(&self, key: &str) -> Result<Option<&[u8]>> {
+        self.inner.get(key)
     }
 }
