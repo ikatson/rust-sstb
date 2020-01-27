@@ -203,6 +203,34 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn bench_large_mmap_memory_usage() {
+        let opts = Options::default();
+        let filename = "/tmp/sstable_big";
+        let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
+        let mut input = File::open("/dev/zero").unwrap();
+
+        let mut buf = [0; 1024];
+        use std::io::Read;
+
+        input.read(&mut buf).unwrap();
+
+        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        while let Some(key) = iter.next() {
+            writer.set(key, &buf).unwrap();
+        }
+
+        writer.write_index().unwrap();
+
+        let mut reader = reader::SSTableReader::new(filename).unwrap();
+        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        while let Some(key) = iter.next() {
+            let val = reader.get(key).unwrap().expect(key);
+            assert_eq!(val.as_bytes().len(), 1024);
+        }
+    }
+
     #[test]
     fn bench_memory_usage() {
         let mut opts = Options::default();
@@ -216,39 +244,18 @@ mod tests {
 
         input.read(&mut buf).unwrap();
 
-        let letters = b"abcdefghijklmnopqrstuvwxyz";
-
-        for i in letters {
-            for j in letters {
-                for k in letters {
-                    for m in letters {
-                        // for n in letters {
-                        let key = [*i, *j, *k, *m];
-                        let skey = unsafe { std::str::from_utf8_unchecked(&key) };
-                        writer.set(skey, &buf).unwrap();
-                        // }
-                    }
-                }
-            }
+        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        while let Some(key) = iter.next() {
+            writer.set(key, &buf).unwrap();
         }
 
         writer.write_index().unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
-
-        for i in letters {
-            for j in letters {
-                for k in letters {
-                    for m in letters {
-                        // for n in letters {
-                        let key = [*i, *j, *k, *m];
-                        let skey = unsafe { std::str::from_utf8_unchecked(&key) };
-                        let val = reader.get(skey).unwrap().unwrap();
-                        assert_eq!(val.as_bytes().len(), 1024);
-                        // }
-                    }
-                }
-            }
+        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        while let Some(key) = iter.next() {
+            let val = reader.get(key).unwrap().expect(key);
+            assert_eq!(val.as_bytes().len(), 1024);
         }
     }
 }
