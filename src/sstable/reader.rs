@@ -147,29 +147,8 @@ impl InnerReader for MmapSSTableReaderV1_0 {
         };
 
         // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
-        let mut data = &self.mmap[offset..right_bound];
-
-        let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
-
-        while data.len() > 0 {
-            let key_end = match memchr::memchr(b'\0', data) {
-                Some(idx) => idx as usize,
-                None => return Err(Error::InvalidData("corrupt or buggy sstable")),
-            };
-            let start_key = std::str::from_utf8(&data[..key_end])?;
-            data = &data[key_end + 1..];
-            let value_length = bincode::deserialize::<Length>(data)?.0 as usize;
-            data = &data[value_length_encoded_size..];
-            let value = &data[..value_length];
-            if value.len() != value_length {
-                return Err(Error::InvalidData("corrupt or buggy sstable"));
-            }
-            if key == start_key {
-                return Ok(Some(GetResult::Ref(value)));
-            }
-            data = &data[value_length..];
-        }
-        return Ok(None);
+        let data = &self.mmap[offset..right_bound];
+        return find_value(data, key).map(|v| v.map(|v| GetResult::Ref(v)));
     }
 }
 
@@ -179,6 +158,30 @@ struct ZlibReaderV1_0 {
     data_start: u64,
     index: BTreeMap<String, u64>,
     block_cache: LruCache<u64, Vec<u8>>,
+}
+
+fn find_value<'a, 'b>(mut data: &'a [u8], key: &'b str) -> Result<Option<&'a [u8]>> {
+    let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
+
+    while data.len() > 0 {
+        let key_end = match memchr::memchr(b'\0', data) {
+            Some(idx) => idx as usize,
+            None => return Err(Error::InvalidData("corrupt or buggy sstable")),
+        };
+        let start_key = std::str::from_utf8(&data[..key_end])?;
+        data = &data[key_end + 1..];
+        let value_length = bincode::deserialize::<Length>(data)?.0 as usize;
+        data = &data[value_length_encoded_size..];
+        let value = &data[..value_length];
+        if value.len() != value_length {
+            return Err(Error::InvalidData("corrupt or buggy sstable"));
+        }
+        if key == start_key {
+            return Ok(Some(value));
+        }
+        data = &data[value_length..];
+    }
+    return Ok(None);
 }
 
 impl ZlibReaderV1_0 {
@@ -271,49 +274,10 @@ impl InnerReader for ZlibReaderV1_0 {
             }
         };
 
+        // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
         let block = self.read_block_cached(offset, right_bound)?;
-        let mut reader = Cursor::new(block);
-        let mut buf = Vec::with_capacity(4096);
-        loop {
-            buf.truncate(0);
-            let size = reader.read_until(0, &mut buf)?;
-            if size == 0 {
-                return Ok(None);
-            }
-            if buf[size - 1] != 0 {
-                return Err(Error::InvalidData("stream ended before reading the key"));
-            }
-            let bytes: &[u8] = &buf[..size - 1];
-            if bytes > key.as_bytes() {
-                return Ok(None);
-            } else {
-                let length = bincode::deserialize_from::<_, Length>(&mut reader)?.0;
-                if bytes == key.as_bytes() {
-                    // this is "read_to_end" equivalent without zeroing.
-                    let value = {
-                        let reader = &mut reader;
-                        let mut buf = Vec::with_capacity(length as usize);
-                        let l = reader.take(length).read_to_end(&mut buf)?;
-                        if l < length as usize {
-                            return Err(Error::InvalidData("truncated file"));
-                        }
-                        buf
-                    };
-                    return Ok(Some(GetResult::Owned(value)));
-                }
 
-                // just waste the data
-                let mut waste_buf = [0; 8192];
-                let mut remaining = length as usize;
-                while remaining > 0 {
-                    let l = reader.read(&mut waste_buf[..remaining])?;
-                    if l == 0 {
-                        return Err(Error::InvalidData("unexpected EOF while reading the file"));
-                    }
-                    remaining -= l;
-                }
-            }
-        }
+        return find_value(block, key).map(|v| v.map(|v| GetResult::Ref(v)));
     }
 }
 
