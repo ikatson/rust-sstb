@@ -296,8 +296,8 @@ impl SSTableReader {
         // dbg!(&meta, data_start);
         let inner: Box<dyn InnerReader> = match meta.compression {
             Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?),
-            // TODO: 1024 - make this configurable.
-            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, 1024)?),
+            // TODO: 1024 - make this configurable, and be tied to memory instead.
+            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, 32)?),
         };
         Ok(SSTableReader { inner: inner })
     }
