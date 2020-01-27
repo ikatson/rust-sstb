@@ -1,0 +1,30 @@
+use std::io::{Read, Result};
+
+#[derive(Debug)]
+pub struct PosReader<R> {
+    r: R,
+    offset: usize,
+}
+
+impl<R> PosReader<R> {
+    pub fn new(r: R, offset: usize) -> Self {
+        PosReader {
+            r: r,
+            offset: offset,
+        }
+    }
+    pub fn current_offset(&self) -> usize {
+        self.offset
+    }
+    pub fn into_inner(self) -> R {
+        self.r
+    }
+}
+
+impl<R: Read> Read for PosReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let l = self.r.read(buf)?;
+        self.offset += l;
+        Ok(l)
+    }
+}

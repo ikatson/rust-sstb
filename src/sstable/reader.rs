@@ -96,7 +96,7 @@ impl MmapSSTableReaderV1_0 {
         }
 
         while index_data.len() > 0 {
-            let string_end = memchr::memchr(b'\0', index_data);
+            let string_end = memchr::memchr(0, index_data);
             let zerobyte = match string_end {
                 Some(idx) => idx,
                 None => return Err(Error::InvalidData("corrupt index")),
@@ -203,8 +203,8 @@ impl ZlibReaderV1_0 {
                 // Index is read fully.
                 break;
             }
-            if buf[size-1] != b'0' {
-                return Err(Error::InvalidData("corrupt file"));
+            if buf[size-1] != 0 {
+                return Err(Error::InvalidData("corrupt file, no zero"));
             }
             let key = std::str::from_utf8(&buf[..size - 1])?.to_owned();
             let length = bincode::deserialize_from::<_, Length>(&mut buf_decoder)?.0;
@@ -263,7 +263,7 @@ impl InnerReader for ZlibReaderV1_0 {
             if size == 0 {
                 return Ok(None);
             }
-            if buf[size] != 0 {
+            if buf[size-1] != 0 {
                 return Err(Error::InvalidData("stream ended before reading the key"));
             }
             let bytes: &[u8] = &buf[..size - 1];
