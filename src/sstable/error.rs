@@ -3,6 +3,7 @@ use super::Version;
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
+    ProgrammingError(&'static str),
     InvalidData(&'static str),
     UnsupportedVersion(Version),
     Bincode(bincode::Error),
