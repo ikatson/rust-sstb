@@ -188,10 +188,11 @@ impl ZlibReaderV1_0 {
         let file_buf_reader = BufReader::new(file);
         let decoder = flate2::read::ZlibDecoder::new(file_buf_reader);
         let mut buf_decoder = BufReader::new(decoder);
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(4096);
         let mut index = BTreeMap::new();
 
         loop {
+            buf.truncate(0);
             let size = buf_decoder.read_until(0, &mut buf)?;
             if size == 0 {
                 // Index is read fully.
@@ -202,8 +203,6 @@ impl ZlibReaderV1_0 {
             }
             let key = std::str::from_utf8(&buf[..size - 1])?.to_owned();
             let length = bincode::deserialize_from::<_, Length>(&mut buf_decoder)?.0;
-            // let mut value = Vec::with_capacity(length as usize);
-            // buf_decoder.read_exact(&mut value)?;
             index.insert(key, length);
         }
 

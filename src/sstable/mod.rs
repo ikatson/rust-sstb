@@ -142,6 +142,7 @@ pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
 mod tests {
     use super::*;
     use std::fs::File;
+    use sorted_string_iterator::SortedStringIterator;
 
     #[test]
     fn test_uncompressed_works() {
@@ -205,18 +206,14 @@ mod tests {
 
 
     #[test]
-    fn bench_large_mmap_memory_usage() {
+    fn test_large_mmap_memory_usage() {
         let opts = Options::default();
         let filename = "/tmp/sstable_big";
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
-        let mut input = File::open("/dev/zero").unwrap();
 
-        let mut buf = [0; 1024];
-        use std::io::Read;
+        let buf = [0; 1024];
 
-        input.read(&mut buf).unwrap();
-
-        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        let mut iter = SortedStringIterator::new(4);
         while let Some(key) = iter.next() {
             writer.set(key, &buf).unwrap();
         }
@@ -224,7 +221,7 @@ mod tests {
         writer.write_index().unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
-        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        let mut iter = SortedStringIterator::new(4);
         while let Some(key) = iter.next() {
             let val = reader.get(key).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
@@ -232,19 +229,16 @@ mod tests {
     }
 
     #[test]
-    fn bench_memory_usage() {
+    fn test_zlib_big() {
         let mut opts = Options::default();
         opts.compression(Compression::Zlib);
         let filename = "/tmp/sstable_big_zlib";
+
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
-        let mut input = File::open("/dev/zero").unwrap();
 
-        let mut buf = [0; 1024];
-        use std::io::Read;
+        let buf = [0; 1024];
 
-        input.read(&mut buf).unwrap();
-
-        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        let mut iter = SortedStringIterator::new(3);
         while let Some(key) = iter.next() {
             writer.set(key, &buf).unwrap();
         }
@@ -252,7 +246,7 @@ mod tests {
         writer.write_index().unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
-        let mut iter = sorted_string_iterator::SortedStringIterator::new(4);
+        let mut iter = SortedStringIterator::new(3);
         while let Some(key) = iter.next() {
             let val = reader.get(key).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
