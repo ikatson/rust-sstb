@@ -94,8 +94,6 @@ impl<R: BufRead> Block for ReaderBlock<R> {
                     return Ok(None)
                 }
 
-                let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
-
                 while !self.finished {
                     let mut buf = Vec::new();
                     let size = self.reader.read_until(0, &mut buf)?;
@@ -109,9 +107,8 @@ impl<R: BufRead> Block for ReaderBlock<R> {
                     buf.pop();
                     let start_key = String::from_utf8(buf)?;
                     let value_length = bincode::deserialize_from::<_, Length>(&mut self.reader)?.0;
-                    let mut value = Vec::with_capacity(value_length as usize);
+                    let mut value: Vec<u8> = std::iter::repeat(0).take(value_length as usize).collect();
                     self.reader.read_exact(&mut value)?;
-
                     self.last_read_key = Some(match self.last_read_key.take() {
                         Some(mut old) => {
                             old.truncate(0);
@@ -122,7 +119,7 @@ impl<R: BufRead> Block for ReaderBlock<R> {
                     });
 
                     match self.seen_keys.entry(start_key) {
-                        Entry::Occupied(occupied) => {
+                        Entry::Occupied(_occupied) => {
                             unreachable!()
                         },
                         Entry::Vacant(vacant) => {

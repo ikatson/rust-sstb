@@ -6,7 +6,6 @@ use std::path::Path;
 use bincode;
 use memmap;
 
-use lru::LruCache;
 use memchr;
 
 use super::*;
@@ -78,6 +77,7 @@ fn read_metadata(file: &mut File) -> Result<MetaResult> {
 }
 
 struct MmapSSTableReaderV1_0 {
+    #[allow(dead_code)]
     mmap: memmap::Mmap,
     index_start: u64,
     // it's not &'static in reality, but it's bound to mmap's lifetime.
@@ -171,37 +171,13 @@ impl<'r> block_reader::ReaderFactory<'r, ZlibRead<'r>> for ZlibFactory {
     }
 }
 
-fn find_value<'a, 'b>(mut data: &'a [u8], key: &'b str) -> Result<Option<&'a [u8]>> {
-    let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
-
-    while data.len() > 0 {
-        let key_end = match memchr::memchr(b'\0', data) {
-            Some(idx) => idx as usize,
-            None => return Err(Error::InvalidData("corrupt or buggy sstable")),
-        };
-        let start_key = std::str::from_utf8(&data[..key_end])?;
-        data = &data[key_end + 1..];
-        let value_length = bincode::deserialize::<Length>(data)?.0 as usize;
-        data = &data[value_length_encoded_size..];
-        let value = &data[..value_length];
-        if value.len() != value_length {
-            return Err(Error::InvalidData("corrupt or buggy sstable"));
-        }
-        if key == start_key {
-            return Ok(Some(value));
-        }
-        data = &data[value_length..];
-    }
-    return Ok(None);
-}
-
 struct ZlibReaderV1_0 {
+    #[allow(dead_code)]
     mmap: memmap::Mmap,
     cache: block_reader::DMAThenReadBlockManager<'static, block_reader::ReaderBlock<ZlibRead<'static>>, ZlibFactory>,
     meta: MetaV1_0,
     data_start: u64,
     index: BTreeMap<String, u64>,
-    // block_cache: LruCache<u64, Vec<u8>>,
 }
 
 impl ZlibReaderV1_0 {
@@ -241,12 +217,11 @@ impl ZlibReaderV1_0 {
         Ok(ZlibReaderV1_0 {
             mmap: mmap,
             cache: block_reader::DMAThenReadBlockManager::new(
-                mmap_buf, ZlibFactory{}, 32
+                mmap_buf, ZlibFactory{}, cache_size
             ),
             data_start: data_start,
             meta: meta,
             index: index,
-            // block_cache: LruCache::new(cache_size),
         })
     }
 }
