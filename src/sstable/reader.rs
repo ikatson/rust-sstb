@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Cursor};
 use std::path::Path;
 
 use bincode;
@@ -173,7 +173,7 @@ impl InnerReader for MmapSSTableReaderV1_0 {
 }
 
 struct ZlibReaderV1_0 {
-    file: File,
+    mmap: memmap::Mmap,
     meta: MetaV1_0,
     data_start: u64,
     index: BTreeMap<String, u64>,
@@ -207,8 +207,10 @@ impl ZlibReaderV1_0 {
         }
 
         // TODO: check that the index size matches metadata
+        let mut file = buf_decoder.into_inner().into_inner().into_inner();
+        let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
         Ok(ZlibReaderV1_0 {
-            file: buf_decoder.into_inner().into_inner().into_inner(),
+            mmap: mmap,
             data_start: data_start,
             meta: meta,
             index: index,
@@ -244,10 +246,8 @@ impl InnerReader for ZlibReaderV1_0 {
             }
         };
 
-        self.file.seek(SeekFrom::Start(offset))?;
-
-        let reader = BufReader::new(&mut self.file).take(right_bound - offset);
-        let zreader = flate2::read::ZlibDecoder::new(reader);
+        let cursor = Cursor::new(&self.mmap[offset as usize..right_bound as usize]);
+        let zreader = flate2::read::ZlibDecoder::new(cursor);
         let mut zreader = BufReader::new(zreader);
         let mut buf = Vec::with_capacity(4096);
         loop {
