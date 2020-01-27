@@ -43,6 +43,10 @@ mod posreader;
 mod poswriter;
 mod reader;
 mod writer;
+
+#[cfg(test)]
+mod sorted_string_iterator;
+
 use error::Error;
 
 type Result<T> = core::result::Result<T, Error>;
@@ -204,8 +208,7 @@ mod tests {
         let mut opts = Options::default();
         opts.compression(Compression::Zlib);
         let filename = "/tmp/sstable_big_zlib";
-        let mut writer =
-            writer::SSTableWriterV1::new(filename, opts).unwrap();
+        let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
         let mut input = File::open("/dev/zero").unwrap();
 
         let mut buf = [0; 1024];

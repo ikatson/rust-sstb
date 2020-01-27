@@ -53,10 +53,16 @@ pub struct ZlibWriter<W: Write> {
 
 impl<W: Write> ZlibWriter<W> {
     fn get_mut_encoder(&mut self) -> Result<&mut flate2::write::ZlibEncoder<PosWriter<W>>> {
-        Ok(self.encoder.as_mut().ok_or(Error::ProgrammingError("encoder missing"))?)
+        Ok(self
+            .encoder
+            .as_mut()
+            .ok_or(Error::ProgrammingError("encoder missing"))?)
     }
     fn take_encoder(&mut self) -> Result<flate2::write::ZlibEncoder<PosWriter<W>>> {
-        Ok(self.encoder.take().ok_or(Error::ProgrammingError("encoder missing"))?)
+        Ok(self
+            .encoder
+            .take()
+            .ok_or(Error::ProgrammingError("encoder missing"))?)
     }
 }
 

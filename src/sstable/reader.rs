@@ -197,7 +197,7 @@ impl ZlibReaderV1_0 {
                 // Index is read fully.
                 break;
             }
-            if buf[size-1] != 0 {
+            if buf[size - 1] != 0 {
                 return Err(Error::InvalidData("corrupt file, no zero"));
             }
             let key = std::str::from_utf8(&buf[..size - 1])?.to_owned();
@@ -257,7 +257,7 @@ impl InnerReader for ZlibReaderV1_0 {
             if size == 0 {
                 return Ok(None);
             }
-            if buf[size-1] != 0 {
+            if buf[size - 1] != 0 {
                 return Err(Error::InvalidData("stream ended before reading the key"));
             }
             let bytes: &[u8] = &buf[..size - 1];
@@ -272,7 +272,7 @@ impl InnerReader for ZlibReaderV1_0 {
                         let mut buf = Vec::with_capacity(length as usize);
                         let l = zreader.take(length).read_to_end(&mut buf)?;
                         if l < length as usize {
-                            return Err(Error::InvalidData("truncated file"))
+                            return Err(Error::InvalidData("truncated file"));
                         }
                         buf
                     };
