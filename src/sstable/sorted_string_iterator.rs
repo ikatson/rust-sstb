@@ -22,12 +22,12 @@ impl SortedStringIterator {
     pub fn new_first_last(length: usize, first: u8, last: u8) -> Self {
         assert!(length > 0);
         assert!(last > first);
-        let buf = core::iter::repeat(FIRST).take(length).collect();
+        let buf = core::iter::repeat(first).take(length).collect();
         Self {
-            buf: buf,
+            buf,
             current: length,
-            first: first,
-            last: last,
+            first,
+            last,
         }
     }
 
