@@ -25,7 +25,6 @@
 //
 
 use std::collections::BTreeMap;
-
 use std::path::Path;
 
 use bincode;
@@ -37,6 +36,7 @@ use memchr;
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
 
+mod block_reader;
 mod compress_ctx_writer;
 mod error;
 mod posreader;
@@ -51,7 +51,7 @@ use error::Error;
 
 type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Default, Deserialize, Debug, PartialEq, Eq)]
 pub struct Version {
     major: u16,
     minor: u16,

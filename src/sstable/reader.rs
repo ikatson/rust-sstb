@@ -96,6 +96,8 @@ impl MmapSSTableReaderV1_0 {
             return Err(Error::InvalidData("invalid index length"));
         }
 
+        let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
+
         while index_data.len() > 0 {
             let string_end = memchr::memchr(0, index_data);
             let zerobyte = match string_end {
@@ -103,9 +105,7 @@ impl MmapSSTableReaderV1_0 {
                 None => return Err(Error::InvalidData("corrupt index")),
             };
             let key = std::str::from_utf8(&index_data[..zerobyte])?;
-            // Make it &'static
             let key: &'static str = unsafe { &*(key as *const str) };
-            let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
             index_data = &index_data[zerobyte + 1..];
             let value: Length = bincode::deserialize(&index_data[..value_length_encoded_size])?;
             index_data = &index_data[value_length_encoded_size..];
