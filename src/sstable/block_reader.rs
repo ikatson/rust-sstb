@@ -3,15 +3,15 @@ use super::*;
 use lru::LruCache;
 use std::collections::hash_map::{HashMap};
 
-trait Block<'a> {
+pub trait Block<'a> {
     fn find_key<'b>(&'a mut self, key: &'b str) -> Result<Option<&'a [u8]>>;
 }
 
-trait BlockManager<'a, B: Block<'a>> {
-    fn get_block(&mut self, offset: u64, limit: u64) -> &mut B;
+pub trait BlockManager<'a, B: Block<'a>> {
+    fn get_block(&'a mut self, offset: u64, limit: u64) -> Result<&'a mut B>;
 }
 
-struct ReferenceBlock<'a> {
+pub struct ReferenceBlock<'a> {
     buf: &'a[u8],
     cursor: usize,
     last_read_key: Option<&'a str>,
@@ -66,15 +66,24 @@ impl<'a> Block<'a> for ReferenceBlock<'a> {
     }
 }
 
-struct DirectMemoryAccessBlockManager<'a, B: Block<'a>> {
+pub struct DirectMemoryAccessBlockManager<'a, B: Block<'a> = ReferenceBlock<'a>> {
     buf: &'a [u8],
     block_cache: LruCache<u64, B>
 }
 
+impl<'a, B: Block<'a>> DirectMemoryAccessBlockManager<'a, B> {
+    pub fn new(buf: &'a [u8], cache_capacity: usize) -> Self {
+        Self{
+            buf: buf,
+            block_cache: LruCache::new(cache_capacity)
+        }
+    }
+}
+
 impl<'a> BlockManager<'a, ReferenceBlock<'a>> for DirectMemoryAccessBlockManager<'a, ReferenceBlock<'a>> {
-    fn get_block(&mut self, offset: u64, limit: u64) -> &mut ReferenceBlock<'a> {
+    fn get_block(&'a mut self, offset: u64, limit: u64) -> Result<&'a mut ReferenceBlock<'a>> {
         match self.block_cache.get_mut(&offset) {
-            Some(block) => unsafe {&mut *(block as *mut _)},
+            Some(block) => Ok(unsafe {&mut *(block as *mut _)}),
             None => {
                 let block = ReferenceBlock{
                     buf: &self.buf[offset as usize..limit as usize],
@@ -83,7 +92,7 @@ impl<'a> BlockManager<'a, ReferenceBlock<'a>> for DirectMemoryAccessBlockManager
                     seen_keys: HashMap::new()
                 };
                 self.block_cache.put(offset, block);
-                self.block_cache.get_mut(&offset).unwrap()
+                Ok(self.block_cache.get_mut(&offset).unwrap())
             }
         }
     }

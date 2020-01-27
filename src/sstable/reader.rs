@@ -11,6 +11,8 @@ use memchr;
 
 use super::*;
 
+use block_reader::{BlockManager, Block};
+
 trait InnerReader {
     fn get(&mut self, key: &str) -> Result<Option<GetResult>>;
 }
@@ -81,6 +83,7 @@ struct MmapSSTableReaderV1_0 {
     // it's not &'static in reality, but it's bound to mmap's lifetime.
     // It will NOT work with compression.
     index: BTreeMap<&'static str, usize>,
+    cache: block_reader::DirectMemoryAccessBlockManager<'static>,
 }
 
 impl MmapSSTableReaderV1_0 {
@@ -112,16 +115,20 @@ impl MmapSSTableReaderV1_0 {
             index.insert(key, value.0 as usize);
         }
 
+        let mmap_buf = &mmap[data_start as usize..index_start as usize];
+        let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
+
         Ok(MmapSSTableReaderV1_0 {
             mmap: mmap,
             index_start: index_start,
             index: index,
+            cache: block_reader::DirectMemoryAccessBlockManager::new(mmap_buf, 32)
         })
     }
 }
 
 impl InnerReader for MmapSSTableReaderV1_0 {
-    fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
+    fn get<'a, 'b>(&'a mut self, key: &'b str) -> Result<Option<GetResult<'a>>> {
         use std::ops::Bound;
 
         let offset = {
@@ -147,8 +154,12 @@ impl InnerReader for MmapSSTableReaderV1_0 {
         };
 
         // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
-        let data = &self.mmap[offset..right_bound];
-        return find_value(data, key).map(|v| v.map(|v| GetResult::Ref(v)));
+        // let data = &self.mmap[offset..right_bound];
+        let block = self.cache.get_block(offset as u64, right_bound as u64)?;
+        let found = block.find_key(key)?;
+        // let found = block.find_key(key)?;
+        return Ok(None)
+        // return Ok(found.map(|v| GetResult::Ref(unsafe {&* (v as *const _)})))
     }
 }
 
