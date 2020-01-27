@@ -8,6 +8,7 @@ pub enum Error {
     UnsupportedVersion(Version),
     Bincode(bincode::Error),
     Utf8Error(std::str::Utf8Error),
+    StdStringFromUtf8Error(std::string::FromUtf8Error),
 }
 
 impl From<std::io::Error> for Error {
@@ -27,3 +28,10 @@ impl From<std::str::Utf8Error> for Error {
         Error::Utf8Error(e)
     }
 }
+
+impl From<std::string::FromUtf8Error> for Error {
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        Error::StdStringFromUtf8Error(e)
+    }
+}
+
