@@ -6,6 +6,7 @@ use std::path::Path;
 use bincode;
 use memmap;
 
+use lru::LruCache;
 use memchr;
 
 use super::*;
@@ -177,10 +178,11 @@ struct ZlibReaderV1_0 {
     meta: MetaV1_0,
     data_start: u64,
     index: BTreeMap<String, u64>,
+    block_cache: LruCache<u64, Vec<u8>>,
 }
 
 impl ZlibReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File) -> Result<Self> {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache_size: usize) -> Result<Self> {
         let index_start = data_start + (meta.data_len as u64);
 
         file.seek(SeekFrom::Start(index_start))?;
@@ -214,7 +216,30 @@ impl ZlibReaderV1_0 {
             data_start: data_start,
             meta: meta,
             index: index,
+            block_cache: LruCache::new(cache_size),
         })
+    }
+
+    fn read_block(&mut self, offset: u64, right_bound: u64) -> Result<Vec<u8>> {
+        dbg!("reading block", offset);
+        let cursor = Cursor::new(&self.mmap[offset as usize..right_bound as usize]);
+        let zreader = flate2::read::ZlibDecoder::new(cursor);
+        let mut zreader = BufReader::new(zreader);
+        let mut buf = Vec::new();
+        zreader.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn read_block_cached(&mut self, offset: u64, right_bound: u64) -> Result<&Vec<u8>> {
+        match self.block_cache.get(&offset) {
+            // this is safe, this is to avoids the borrow checker lifetime issue.
+            Some(v) => Ok(unsafe { &*(v as *const _) }),
+            None => {
+                let block = self.read_block(offset, right_bound)?;
+                self.block_cache.put(offset, block);
+                Ok(self.block_cache.get(&offset).unwrap())
+            }
+        }
     }
 }
 
@@ -246,13 +271,12 @@ impl InnerReader for ZlibReaderV1_0 {
             }
         };
 
-        let cursor = Cursor::new(&self.mmap[offset as usize..right_bound as usize]);
-        let zreader = flate2::read::ZlibDecoder::new(cursor);
-        let mut zreader = BufReader::new(zreader);
+        let block = self.read_block_cached(offset, right_bound)?;
+        let mut reader = Cursor::new(block);
         let mut buf = Vec::with_capacity(4096);
         loop {
             buf.truncate(0);
-            let size = zreader.read_until(0, &mut buf)?;
+            let size = reader.read_until(0, &mut buf)?;
             if size == 0 {
                 return Ok(None);
             }
@@ -263,13 +287,13 @@ impl InnerReader for ZlibReaderV1_0 {
             if bytes > key.as_bytes() {
                 return Ok(None);
             } else {
-                let length = bincode::deserialize_from::<_, Length>(&mut zreader)?.0;
+                let length = bincode::deserialize_from::<_, Length>(&mut reader)?.0;
                 if bytes == key.as_bytes() {
                     // this is "read_to_end" equivalent without zeroing.
                     let value = {
-                        let zreader = &mut zreader;
+                        let reader = &mut reader;
                         let mut buf = Vec::with_capacity(length as usize);
-                        let l = zreader.take(length).read_to_end(&mut buf)?;
+                        let l = reader.take(length).read_to_end(&mut buf)?;
                         if l < length as usize {
                             return Err(Error::InvalidData("truncated file"));
                         }
@@ -282,7 +306,7 @@ impl InnerReader for ZlibReaderV1_0 {
                 let mut waste_buf = [0; 8192];
                 let mut remaining = length as usize;
                 while remaining > 0 {
-                    let l = zreader.read(&mut waste_buf[..remaining])?;
+                    let l = reader.read(&mut waste_buf[..remaining])?;
                     if l == 0 {
                         return Err(Error::InvalidData("unexpected EOF while reading the file"));
                     }
@@ -308,7 +332,8 @@ impl SSTableReader {
         // dbg!(&meta, data_start);
         let inner: Box<dyn InnerReader> = match meta.compression {
             Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?),
-            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file)?),
+            // TODO: 1024 - make this configurable.
+            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, 1024)?),
         };
         Ok(SSTableReader { inner: inner })
     }

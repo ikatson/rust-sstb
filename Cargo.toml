@@ -12,3 +12,4 @@ bincode = "^1"
 serde = {version = "*", features = ["derive"]}
 memchr = "^2"
 flate2 = "^1"
+lru = "^0.4"

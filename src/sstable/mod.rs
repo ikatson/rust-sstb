@@ -225,7 +225,7 @@ mod tests {
 
         let buf = [0; 1024];
 
-        let mut iter = SortedStringIterator::new(2);
+        let mut iter = SortedStringIterator::new(4);
         while let Some(key) = iter.next() {
             writer.set(key, &buf).unwrap();
         }
