@@ -115,7 +115,7 @@ impl MmapSSTableReaderV1_0 {
             index.insert(key, value.0 as usize);
         }
 
-        let mmap_buf = &mmap[data_start as usize..index_start as usize];
+        let mmap_buf = &mmap[..];
         let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
 
         Ok(MmapSSTableReaderV1_0 {
@@ -131,7 +131,7 @@ impl InnerReader for MmapSSTableReaderV1_0 {
     fn get<'a, 'b>(&'a mut self, key: &'b str) -> Result<Option<GetResult<'a>>> {
         use std::ops::Bound;
 
-        let offset = {
+        let start = {
             let mut iter_left = self
                 .index
                 .range::<&str, _>((Bound::Unbounded, Bound::Included(key)));
@@ -142,7 +142,7 @@ impl InnerReader for MmapSSTableReaderV1_0 {
             }
         };
 
-        let right_bound = {
+        let end = {
             let mut iter_right = self
                 .index
                 .range::<&str, _>((Bound::Excluded(key), Bound::Unbounded));
@@ -155,10 +155,10 @@ impl InnerReader for MmapSSTableReaderV1_0 {
 
         // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
         // let data = &self.mmap[offset..right_bound];
-        let block = self.cache.get_block(offset as u64, right_bound as u64)?;
+        let block = self.cache.get_block(start as u64, end as u64)?;
         let found = block.find_key(key)?;
+        Ok(found.map(|v| GetResult::Ref(v)))
         // let found = block.find_key(key)?;
-        return Ok(None)
         // return Ok(found.map(|v| GetResult::Ref(unsafe {&* (v as *const _)})))
     }
 }
