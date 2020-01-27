@@ -172,6 +172,10 @@ impl<'r> BlockManager<ReferenceBlock<'r>> for DirectMemoryAccessBlockManager<'r,
     }
 }
 
+pub trait ReaderFactory<'b, R: BufRead + 'b> {
+    fn make_reader<'a>(&'a self, buf: &'b [u8]) -> R;
+}
+
 pub struct DMAThenReadBlockManager<'a, B, F> {
     buf: &'a [u8],
     block_cache: LruCache<u64, B>,
@@ -179,8 +183,8 @@ pub struct DMAThenReadBlockManager<'a, B, F> {
 }
 
 impl<'a, R, F> DMAThenReadBlockManager<'a, ReaderBlock<R>, F>
-    where R: BufRead,
-          F: Fn(&'a [u8]) -> R
+    where R: BufRead + 'a,
+          F: ReaderFactory<'a, R>
 {
     pub fn new(buf: &'a [u8], factory: F, cache_capacity: usize) -> Self {
         Self{
@@ -192,15 +196,15 @@ impl<'a, R, F> DMAThenReadBlockManager<'a, ReaderBlock<R>, F>
 }
 
 impl<'r, R, F> BlockManager<ReaderBlock<R>> for DMAThenReadBlockManager<'r, ReaderBlock<R>, F>
-    where R: BufRead,
-          F: Fn(&'r [u8]) -> R
+    where R: BufRead + 'r,
+          F: ReaderFactory<'r, R>
 {
     fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut ReaderBlock<R>> {
         match self.block_cache.get_mut(&start) {
             Some(block) => Ok(unsafe {&mut *(block as *mut _)}),
             None => {
                 let block = ReaderBlock{
-                    reader: (self.factory)(&self.buf[start as usize..end as usize]),
+                    reader: self.factory.make_reader(&self.buf[start as usize..end as usize]),
                     last_read_key: None,
                     finished: false,
                     seen_keys: HashMap::new()

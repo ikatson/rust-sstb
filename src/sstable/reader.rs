@@ -153,22 +153,22 @@ impl InnerReader for MmapSSTableReaderV1_0 {
             }
         };
 
-        // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
-        // let data = &self.mmap[offset..right_bound];
         let block = self.cache.get_block(start as u64, end as u64)?;
         let found = block.find_key(key)?;
         Ok(found.map(|v| GetResult::Ref(v)))
-        // let found = block.find_key(key)?;
-        // return Ok(found.map(|v| GetResult::Ref(unsafe {&* (v as *const _)})))
     }
 }
 
-struct ZlibReaderV1_0 {
-    mmap: memmap::Mmap,
-    meta: MetaV1_0,
-    data_start: u64,
-    index: BTreeMap<String, u64>,
-    block_cache: LruCache<u64, Vec<u8>>,
+struct ZlibFactory {}
+
+type ZlibRead<'a> = BufReader<flate2::read::ZlibDecoder<Cursor<&'a [u8]>>>;
+
+impl<'r> block_reader::ReaderFactory<'r, ZlibRead<'r>> for ZlibFactory {
+    fn make_reader<'a>(&'a self, buf: &'r [u8]) -> ZlibRead<'r> {
+        let cursor = std::io::Cursor::new(buf);
+        let reader = flate2::read::ZlibDecoder::new(cursor);
+        return BufReader::new(reader);
+    }
 }
 
 fn find_value<'a, 'b>(mut data: &'a [u8], key: &'b str) -> Result<Option<&'a [u8]>> {
@@ -193,6 +193,15 @@ fn find_value<'a, 'b>(mut data: &'a [u8], key: &'b str) -> Result<Option<&'a [u8
         data = &data[value_length..];
     }
     return Ok(None);
+}
+
+struct ZlibReaderV1_0 {
+    mmap: memmap::Mmap,
+    cache: block_reader::DMAThenReadBlockManager<'static, block_reader::ReaderBlock<ZlibRead<'static>>, ZlibFactory>,
+    meta: MetaV1_0,
+    data_start: u64,
+    index: BTreeMap<String, u64>,
+    // block_cache: LruCache<u64, Vec<u8>>,
 }
 
 impl ZlibReaderV1_0 {
@@ -225,35 +234,20 @@ impl ZlibReaderV1_0 {
         // TODO: check that the index size matches metadata
         let mut file = buf_decoder.into_inner().into_inner().into_inner();
         let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
+
+        let mmap_buf = &mmap[..];
+        let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
+
         Ok(ZlibReaderV1_0 {
             mmap: mmap,
+            cache: block_reader::DMAThenReadBlockManager::new(
+                mmap_buf, ZlibFactory{}, 32
+            ),
             data_start: data_start,
             meta: meta,
             index: index,
-            block_cache: LruCache::new(cache_size),
+            // block_cache: LruCache::new(cache_size),
         })
-    }
-
-    fn read_block(&mut self, offset: u64, right_bound: u64) -> Result<Vec<u8>> {
-        dbg!("reading block", offset);
-        let cursor = Cursor::new(&self.mmap[offset as usize..right_bound as usize]);
-        let zreader = flate2::read::ZlibDecoder::new(cursor);
-        let mut zreader = BufReader::new(zreader);
-        let mut buf = Vec::new();
-        zreader.read_to_end(&mut buf)?;
-        Ok(buf)
-    }
-
-    fn read_block_cached(&mut self, offset: u64, right_bound: u64) -> Result<&Vec<u8>> {
-        match self.block_cache.get(&offset) {
-            // this is safe, this is to avoids the borrow checker lifetime issue.
-            Some(v) => Ok(unsafe { &*(v as *const _) }),
-            None => {
-                let block = self.read_block(offset, right_bound)?;
-                self.block_cache.put(offset, block);
-                Ok(self.block_cache.get(&offset).unwrap())
-            }
-        }
     }
 }
 
@@ -285,10 +279,9 @@ impl InnerReader for ZlibReaderV1_0 {
             }
         };
 
-        // let mut data = &self.mmap[self.data_start as usize..self.index_start as usize];
-        let block = self.read_block_cached(offset, right_bound)?;
-
-        return find_value(block, key).map(|v| v.map(|v| GetResult::Ref(v)));
+        let block = self.cache.get_block(offset, right_bound)?;
+        let found = block.find_key(key)?;
+        Ok(found.map(|v| GetResult::Ref(v)))
     }
 }
 
