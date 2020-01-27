@@ -58,7 +58,7 @@ pub struct Version {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-enum Compression {
+pub enum Compression {
     None,
     Zlib,
 }
@@ -95,19 +95,8 @@ pub trait RawSSTableWriter {
 
 #[derive(Debug)]
 pub struct Options {
-    compression: Compression,
-    flush_every: usize,
-}
-
-impl Options {
-    fn compression(&mut self, c: Compression) -> &mut Self {
-        self.compression = c;
-        self
-    }
-    fn flush_every(&mut self, e: usize) -> &mut Self {
-        self.flush_every = e;
-        self
-    }
+    pub compression: Compression,
+    pub flush_every: usize,
 }
 
 impl Default for Options {
@@ -141,7 +130,6 @@ pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use sorted_string_iterator::SortedStringIterator;
 
     #[test]
@@ -155,7 +143,7 @@ mod tests {
         map.insert("bar".into(), b"some bar");
 
         let mut options = Options::default();
-        options.compression(Compression::None);
+        options.compression = Compression::None;
         write_btree_map(&map, filename, Some(options)).unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
@@ -185,7 +173,7 @@ mod tests {
         map.insert("bario".into(), b"some bar");
 
         let mut options = Options::default();
-        options.compression(Compression::Zlib);
+        options.compression = Compression::Zlib;
         write_btree_map(&map, filename, Some(options)).unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
@@ -204,7 +192,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_large_mmap_memory_usage() {
         let opts = Options::default();
@@ -221,7 +208,7 @@ mod tests {
         writer.write_index().unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
-        let mut iter = SortedStringIterator::new(4);
+        iter.reset();
         while let Some(key) = iter.next() {
             let val = reader.get(key).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
@@ -231,14 +218,14 @@ mod tests {
     #[test]
     fn test_zlib_big() {
         let mut opts = Options::default();
-        opts.compression(Compression::Zlib);
+        opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
 
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
 
         let buf = [0; 1024];
 
-        let mut iter = SortedStringIterator::new(3);
+        let mut iter = SortedStringIterator::new(2);
         while let Some(key) = iter.next() {
             writer.set(key, &buf).unwrap();
         }
@@ -246,7 +233,7 @@ mod tests {
         writer.write_index().unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
-        let mut iter = SortedStringIterator::new(3);
+        iter.reset();
         while let Some(key) = iter.next() {
             let val = reader.get(key).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);

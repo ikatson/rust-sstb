@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::mem::MaybeUninit;
 
 use super::*;
 use poswriter::PosWriter;
@@ -92,7 +91,7 @@ impl<W: Write> ZlibWriter<W> {
 
 impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
     fn relative_offset(&mut self) -> Result<usize> {
-        let initial = self.initial_offset;
+        let _initial = self.initial_offset;
 
         // let current_offset = self.get_mut_encoder()?.get_ref().current_offset();
 

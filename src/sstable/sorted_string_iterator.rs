@@ -13,6 +13,12 @@ impl SortedStringIterator {
     pub fn new(length: usize) -> Self {
         Self::new_first_last(length, FIRST, LAST)
     }
+    pub fn reset(&mut self) {
+        for v in self.buf.iter_mut() {
+            *v = self.first;
+        }
+        self.current = self.buf.len();
+    }
     pub fn new_first_last(length: usize, first: u8, last: u8) -> Self {
         assert!(length > 0);
         assert!(last > first);
@@ -34,7 +40,7 @@ impl SortedStringIterator {
                 let val = unsafe { self.buf.get_unchecked_mut(self.current) };
                 if *val < self.last {
                     *val += 1;
-                    for v in self.buf.iter_mut().skip(self.current+1) {
+                    for v in self.buf.iter_mut().skip(self.current + 1) {
                         *v = self.first
                     }
                     self.current = buflen - 1;
