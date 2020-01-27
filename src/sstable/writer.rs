@@ -27,7 +27,6 @@ impl SSTableWriterV1 {
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write(MAGIC)?;
 
-        dbg!("writing version");
         bincode::serialize_into(&mut writer, &VERSION_10)?;
 
         let meta_start = writer.current_offset();
@@ -35,7 +34,6 @@ impl SSTableWriterV1 {
         let mut meta = MetaV1_0::default();
         meta.compression = options.compression;
 
-        dbg!("writing metadata");
         bincode::serialize_into(&mut writer, &meta)?;
 
         let data_start = writer.current_offset();
@@ -45,7 +43,6 @@ impl SSTableWriterV1 {
             Compression::Zlib => Box::new(ZlibWriter::new(writer)) as Box<_>,
         };
 
-        dbg!("ready to write data");
         Ok(Self {
             file: file,
             meta: meta,
@@ -56,7 +53,6 @@ impl SSTableWriterV1 {
         })
     }
     pub fn write_index(self) -> Result<()> {
-        dbg!("writing index");
         match self {
             SSTableWriterV1 {
                 file,

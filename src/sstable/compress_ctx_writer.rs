@@ -63,7 +63,6 @@ impl<W: Write> ZlibWriter<W> {
 impl<W: Write> Write for ZlibWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let e = self.get_mut_encoder().unwrap();
-        dbg!(buf);
         e.write(buf)
     }
 
@@ -111,7 +110,6 @@ impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
         let encoder = self.take_encoder()?;
         let writer = encoder.finish()?;
         let offset = writer.current_offset();
-        dbg!(offset);
         self.encoder = Some(flate2::write::ZlibEncoder::new(
             writer,
             flate2::Compression::default(),

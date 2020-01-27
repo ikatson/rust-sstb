@@ -140,22 +140,6 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    fn test_zlib_stuff() {
-        use std::io::{BufWriter, Write};
-
-        let mut buf: Vec<u8> = Vec::new();
-        let enc = flate2::write::ZlibEncoder::new(&mut buf, flate2::Compression::default());
-        let mut bufenc = BufWriter::new(enc);
-        bufenc.write_all(b"foo").unwrap();
-        bufenc.flush().unwrap();
-        bufenc.write_all(b"\0").unwrap();
-        bufenc.flush().unwrap();
-        bufenc.write_all(b"some foo").unwrap();
-        let buf = bufenc.into_inner().unwrap().finish().unwrap();
-        dbg!(buf);
-    }
-
-    #[test]
     fn test_uncompressed_works() {
         use std::collections::BTreeMap;
 
@@ -193,7 +177,7 @@ mod tests {
 
         let mut map = BTreeMap::new();
         map.insert("foo".into(), b"some foo");
-        map.insert("bar".into(), b"some bar");
+        map.insert("bario".into(), b"some bar");
 
         let mut options = Options::default();
         options.compression(Compression::Zlib);
@@ -206,7 +190,7 @@ mod tests {
             Some(b"some foo" as &[u8])
         );
         assert_eq!(
-            reader.get("bar").unwrap().as_ref().map(|v| v.as_bytes()),
+            reader.get("bario").unwrap().as_ref().map(|v| v.as_bytes()),
             Some(b"some bar" as &[u8])
         );
         assert_eq!(
@@ -217,8 +201,11 @@ mod tests {
 
     #[test]
     fn bench_memory_usage() {
+        let mut opts = Options::default();
+        opts.compression(Compression::Zlib);
+        let filename = "/tmp/sstable_big_zlib";
         let mut writer =
-            writer::SSTableWriterV1::new("/tmp/sstable_big", Options::default()).unwrap();
+            writer::SSTableWriterV1::new(filename, opts).unwrap();
         let mut input = File::open("/dev/zero").unwrap();
 
         let mut buf = [0; 1024];
@@ -244,7 +231,7 @@ mod tests {
 
         writer.write_index().unwrap();
 
-        let mut reader = reader::SSTableReader::new("/tmp/sstable_big").unwrap();
+        let mut reader = reader::SSTableReader::new(filename).unwrap();
 
         for i in letters {
             for j in letters {

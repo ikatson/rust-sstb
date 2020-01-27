@@ -111,8 +111,6 @@ impl MmapSSTableReaderV1_0 {
             index.insert(key, value.0 as usize);
         }
 
-        // dbg!(&index);
-
         Ok(MmapSSTableReaderV1_0 {
             mmap: mmap,
             index_start: index_start,
@@ -160,7 +158,6 @@ impl InnerReader for MmapSSTableReaderV1_0 {
             let start_key = std::str::from_utf8(&data[..key_end])?;
             data = &data[key_end + 1..];
             let value_length = bincode::deserialize::<Length>(data)?.0 as usize;
-            // dbg!((start_key, value_length));
             data = &data[value_length_encoded_size..];
             let value = &data[..value_length];
             if value.len() != value_length {
@@ -186,9 +183,6 @@ impl ZlibReaderV1_0 {
     fn new(meta: MetaV1_0, data_start: u64, mut file: File) -> Result<Self> {
         let index_start = data_start + (meta.data_len as u64);
 
-        dbg!(&meta);
-        dbg!(data_start);
-        dbg!(index_start);
         file.seek(SeekFrom::Start(index_start))?;
 
         let file_buf_reader = BufReader::new(file);
@@ -214,7 +208,6 @@ impl ZlibReaderV1_0 {
         }
 
         // TODO: check that the index size matches metadata
-
         Ok(ZlibReaderV1_0 {
             file: buf_decoder.into_inner().into_inner().into_inner(),
             data_start: data_start,
@@ -241,7 +234,7 @@ impl InnerReader for ZlibReaderV1_0 {
 
         let index_start = self.data_start + self.meta.data_len as u64;
 
-        let _right_bound = {
+        let right_bound = {
             let mut iter_right = self
                 .index
                 .range::<str, _>((Bound::Excluded(key), Bound::Unbounded));
@@ -254,11 +247,12 @@ impl InnerReader for ZlibReaderV1_0 {
 
         self.file.seek(SeekFrom::Start(offset))?;
 
-        let reader = BufReader::new(&mut self.file);
+        let reader = BufReader::new(&mut self.file).take(right_bound - offset);
         let zreader = flate2::read::ZlibDecoder::new(reader);
         let mut zreader = BufReader::new(zreader);
         let mut buf = Vec::with_capacity(4096);
         loop {
+            buf.truncate(0);
             let size = zreader.read_until(0, &mut buf)?;
             if size == 0 {
                 return Ok(None);
@@ -272,8 +266,16 @@ impl InnerReader for ZlibReaderV1_0 {
             } else {
                 let length = bincode::deserialize_from::<_, Length>(&mut zreader)?.0;
                 if bytes == key.as_bytes() {
-                    let mut value = Vec::with_capacity(length as usize);
-                    zreader.read_exact(&mut value)?;
+                    // this is "read_to_end" equivalent without zeroing.
+                    let value = {
+                        let zreader = &mut zreader;
+                        let mut buf = Vec::with_capacity(length as usize);
+                        let l = zreader.take(length).read_to_end(&mut buf)?;
+                        if l < length as usize {
+                            return Err(Error::InvalidData("truncated file"))
+                        }
+                        buf
+                    };
                     return Ok(Some(GetResult::Owned(value)));
                 }
 
@@ -304,6 +306,7 @@ impl SSTableReader {
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };
+        // dbg!(&meta, data_start);
         let inner: Box<dyn InnerReader> = match meta.compression {
             Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?),
             Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file)?),
