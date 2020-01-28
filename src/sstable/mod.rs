@@ -131,7 +131,7 @@ pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
 mod tests {
     use super::*;
     use sorted_string_iterator::SortedStringIterator;
-
+    use procinfo;
     use std::collections::BTreeMap;
 
     fn test_basic_sanity(options: Options, filename: &str) {
@@ -170,7 +170,7 @@ mod tests {
         test_basic_sanity(options, "/tmp/sstable_zlib");
     }
 
-    fn test_large_file_with_options(opts: Options, filename: &str) {
+    fn test_large_file_with_options(opts: Options, filename: &str, expected_max_rss: usize) {
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
 
         let buf = [0; 1024];
@@ -188,6 +188,9 @@ mod tests {
             let val = reader.get(key).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
         }
+        let statm = procinfo::pid::statm_self().unwrap();
+
+        assert!(statm)
     }
 
     #[test]
