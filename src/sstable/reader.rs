@@ -265,7 +265,11 @@ impl Default for ReadOptions {
 }
 
 impl SSTableReader {
-    pub fn new<P: AsRef<Path>>(filename: P, opts: &ReadOptions) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
+        Self::new_with_options(filename, &ReadOptions::default())
+    }
+
+    pub fn new_with_options<P: AsRef<Path>>(filename: P, opts: &ReadOptions) -> Result<Self> {
         let mut file = File::open(filename)?;
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;

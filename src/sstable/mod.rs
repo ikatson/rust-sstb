@@ -147,7 +147,7 @@ mod tests {
         map.insert("bar".into(), b"some bar");
         write_btree_map(&map, filename, Some(options)).unwrap();
 
-        let mut reader = reader::SSTableReader::new(filename, &reader::ReadOptions::default()).unwrap();
+        let mut reader = reader::SSTableReader::new_with_options(filename, &reader::ReadOptions::default()).unwrap();
 
         assert_eq!(
             reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()),
@@ -190,7 +190,7 @@ mod tests {
         writer.write_index().unwrap();
 
         let read_opts = reader::ReadOptions::default();
-        let mut reader = reader::SSTableReader::new(filename, &read_opts).unwrap();
+        let mut reader = reader::SSTableReader::new_with_options(filename, &read_opts).unwrap();
         iter.reset();
         while let Some(key) = iter.next() {
             let val = reader.get(key).unwrap().expect(key);
