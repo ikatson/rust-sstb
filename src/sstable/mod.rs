@@ -132,18 +132,12 @@ mod tests {
     use super::*;
     use sorted_string_iterator::SortedStringIterator;
 
-    #[test]
-    fn test_uncompressed_works() {
-        use std::collections::BTreeMap;
+    use std::collections::BTreeMap;
 
-        let filename = "/tmp/sstable";
-
+    fn test_basic_sanity(options: Options, filename: &str) {
         let mut map = BTreeMap::new();
         map.insert("foo".into(), b"some foo");
         map.insert("bar".into(), b"some bar");
-
-        let mut options = Options::default();
-        options.compression = Compression::None;
         write_btree_map(&map, filename, Some(options)).unwrap();
 
         let mut reader = reader::SSTableReader::new(filename).unwrap();
@@ -163,39 +157,20 @@ mod tests {
     }
 
     #[test]
-    fn test_compressed_works() {
-        use std::collections::BTreeMap;
-
-        let filename = "/tmp/sstable_zlib";
-
-        let mut map = BTreeMap::new();
-        map.insert("foo".into(), b"some foo");
-        map.insert("bario".into(), b"some bar");
-
+    fn test_uncompressed_basic_sanity() {
         let mut options = Options::default();
-        options.compression = Compression::Zlib;
-        write_btree_map(&map, filename, Some(options)).unwrap();
-
-        let mut reader = reader::SSTableReader::new(filename).unwrap();
-
-        assert_eq!(
-            reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()),
-            Some(b"some foo" as &[u8])
-        );
-        assert_eq!(
-            reader.get("bario").unwrap().as_ref().map(|v| v.as_bytes()),
-            Some(b"some bar" as &[u8])
-        );
-        assert_eq!(
-            reader.get("foobar").unwrap().as_ref().map(|v| v.as_bytes()),
-            None
-        );
+        options.compression = Compression::None;
+        test_basic_sanity(options, "/tmp/sstable");
     }
 
     #[test]
-    fn test_large_mmap_memory_usage() {
-        let opts = Options::default();
-        let filename = "/tmp/sstable_big";
+    fn test_compressed_with_zlib_basic_sanity() {
+        let mut options = Options::default();
+        options.compression = Compression::Zlib;
+        test_basic_sanity(options, "/tmp/sstable");
+    }
+
+    fn test_large_file_with_options(opts: Options, filename: &str) {
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
 
         let buf = [0; 1024];
@@ -216,27 +191,18 @@ mod tests {
     }
 
     #[test]
-    fn test_zlib_big() {
+    fn test_large_mmap_file() {
+        let mut opts = Options::default();
+        opts.compression = Compression::None;
+        let filename = "/tmp/sstable_big";
+        test_large_file_with_options(opts, filename);
+    }
+
+    #[test]
+    fn test_large_zlib_file() {
         let mut opts = Options::default();
         opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
-
-        let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
-
-        let buf = [0; 1024];
-
-        let mut iter = SortedStringIterator::new(4);
-        while let Some(key) = iter.next() {
-            writer.set(key, &buf).unwrap();
-        }
-
-        writer.write_index().unwrap();
-
-        let mut reader = reader::SSTableReader::new(filename).unwrap();
-        iter.reset();
-        while let Some(key) = iter.next() {
-            let val = reader.get(key).unwrap().expect(key);
-            assert_eq!(val.as_bytes().len(), 1024);
-        }
+        test_large_file_with_options(opts, filename);
     }
 }
