@@ -177,12 +177,12 @@ mod tests {
         test_basic_sanity(options, "/tmp/sstable_zlib");
     }
 
-    fn test_large_file_with_options(opts: WriteOptions, filename: &str, expected_max_rss_kb: usize) {
+    fn test_large_file_with_options(opts: WriteOptions, filename: &str, expected_max_rss_kb: usize, values: usize) {
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
 
         let buf = [0; 1024];
 
-        let mut iter = SortedStringIterator::new(4);
+        let mut iter = SortedStringIterator::new(10, values);
         while let Some(key) = iter.next() {
             writer.set(key, &buf).unwrap();
         }
@@ -197,6 +197,7 @@ mod tests {
             assert_eq!(val.as_bytes().len(), 1024);
         }
         let rss = get_current_pid_rss();
+        dbg!("RSS KB", rss);
         assert!(rss < expected_max_rss_kb, "RSS usage is {}Kb, but expected less than {}Kb", rss, expected_max_rss_kb);
     }
 
@@ -205,7 +206,7 @@ mod tests {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::None;
         let filename = "/tmp/sstable_big";
-        test_large_file_with_options(opts, filename, 10_000);
+        test_large_file_with_options(opts, filename, 3_000_000, 3_000_000);
     }
 
     #[test]
@@ -213,6 +214,6 @@ mod tests {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
-        test_large_file_with_options(opts, filename, 10_000);
+        test_large_file_with_options(opts, filename, 1_000_000, 1_000_000);
     }
 }

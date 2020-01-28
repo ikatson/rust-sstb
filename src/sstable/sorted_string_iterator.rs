@@ -7,19 +7,22 @@ pub struct SortedStringIterator {
     current: usize,
     first: u8,
     last: u8,
+    counter: usize,
+    limit: usize,
 }
 
 impl SortedStringIterator {
-    pub fn new(length: usize) -> Self {
-        Self::new_first_last(length, FIRST, LAST)
+    pub fn new(length: usize, limit: usize) -> Self {
+        Self::new_first_last(length, FIRST, LAST, limit)
     }
     pub fn reset(&mut self) {
         for v in self.buf.iter_mut() {
             *v = self.first;
         }
         self.current = self.buf.len();
+        self.counter = 0;
     }
-    pub fn new_first_last(length: usize, first: u8, last: u8) -> Self {
+    pub fn new_first_last(length: usize, first: u8, last: u8, limit: usize) -> Self {
         assert!(length > 0);
         assert!(last > first);
         let buf = core::iter::repeat(first).take(length).collect();
@@ -28,11 +31,16 @@ impl SortedStringIterator {
             current: length,
             first,
             last,
+            counter: 0,
+            limit,
         }
     }
 
     pub fn next(&mut self) -> Option<&str> {
         let buflen = self.buf.len();
+        if self.limit > 0 && self.counter == self.limit {
+            return None
+        }
         if self.current == buflen {
             self.current = buflen - 1;
         } else {
@@ -53,6 +61,7 @@ impl SortedStringIterator {
                 }
             }
         }
+        self.counter += 1;
         return Some(unsafe { std::str::from_utf8_unchecked(&self.buf) });
     }
 }
@@ -62,7 +71,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_sequence() {
-        let mut iter = SortedStringIterator::new_first_last(3, b'a', b'c');
+        let mut iter = SortedStringIterator::new_first_last(3, b'a', b'c', 0);
 
         assert_eq!(iter.next(), Some("aaa"));
         assert_eq!(iter.next(), Some("aab"));
