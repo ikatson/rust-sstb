@@ -167,7 +167,7 @@ mod tests {
     fn test_compressed_with_zlib_basic_sanity() {
         let mut options = Options::default();
         options.compression = Compression::Zlib;
-        test_basic_sanity(options, "/tmp/sstable");
+        test_basic_sanity(options, "/tmp/sstable_zlib");
     }
 
     fn test_large_file_with_options(opts: Options, filename: &str) {
