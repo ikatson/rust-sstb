@@ -88,7 +88,7 @@ struct MmapSSTableReaderV1_0 {
 }
 
 impl MmapSSTableReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File) -> Result<Self> {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache_size: usize) -> Result<Self> {
         let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
 
         let mut index = BTreeMap::new();
@@ -123,7 +123,7 @@ impl MmapSSTableReaderV1_0 {
             mmap: mmap,
             index_start: index_start,
             index: index,
-            cache: block_reader::DirectMemoryAccessBlockManager::new(mmap_buf, 32)
+            cache: block_reader::DirectMemoryAccessBlockManager::new(mmap_buf, cache_size)
         })
     }
 }
@@ -254,19 +254,27 @@ pub struct SSTableReader {
     inner: Box<dyn InnerReader>,
 }
 
+pub struct ReadOptions {
+    cache_size: usize,
+}
+
+impl Default for ReadOptions {
+    fn default() -> Self {
+        Self{cache_size: 32}
+    }
+}
+
 impl SSTableReader {
-    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(filename: P, opts: &ReadOptions) -> Result<Self> {
         let mut file = File::open(filename)?;
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };
-        // dbg!(&meta, data_start);
         let inner: Box<dyn InnerReader> = match meta.compression {
-            Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file)?),
-            // TODO: 1024 - make this configurable, and be tied to memory instead.
-            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, 32)?),
+            Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file, opts.cache_size)?),
+            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, opts.cache_size)?),
         };
         Ok(SSTableReader { inner: inner })
     }

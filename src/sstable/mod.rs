@@ -131,8 +131,15 @@ pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
 mod tests {
     use super::*;
     use sorted_string_iterator::SortedStringIterator;
-    use procinfo;
     use std::collections::BTreeMap;
+
+    fn get_current_pid_rss() -> usize {
+        let pid = format!("{}", std::process::id());
+        let out = std::process::Command::new("ps").args(&["-p", &pid, "-o", "rss"]).output().unwrap();
+        let out = String::from_utf8(out.stdout).unwrap();
+        let pid_line = out.lines().nth(1).unwrap();
+        pid_line.trim().parse::<usize>().unwrap()
+    }
 
     fn test_basic_sanity(options: Options, filename: &str) {
         let mut map = BTreeMap::new();
@@ -140,7 +147,7 @@ mod tests {
         map.insert("bar".into(), b"some bar");
         write_btree_map(&map, filename, Some(options)).unwrap();
 
-        let mut reader = reader::SSTableReader::new(filename).unwrap();
+        let mut reader = reader::SSTableReader::new(filename, &reader::ReadOptions::default()).unwrap();
 
         assert_eq!(
             reader.get("foo").unwrap().as_ref().map(|v| v.as_bytes()),
@@ -170,7 +177,7 @@ mod tests {
         test_basic_sanity(options, "/tmp/sstable_zlib");
     }
 
-    fn test_large_file_with_options(opts: Options, filename: &str, expected_max_rss: usize) {
+    fn test_large_file_with_options(opts: Options, filename: &str, expected_max_rss_kb: usize) {
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
 
         let buf = [0; 1024];
@@ -182,15 +189,16 @@ mod tests {
 
         writer.write_index().unwrap();
 
-        let mut reader = reader::SSTableReader::new(filename).unwrap();
+        let read_opts = reader::ReadOptions::default();
+        let mut reader = reader::SSTableReader::new(filename, &read_opts).unwrap();
         iter.reset();
         while let Some(key) = iter.next() {
             let val = reader.get(key).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
         }
-        let statm = procinfo::pid::statm_self().unwrap();
+        let rss = get_current_pid_rss();
 
-        assert!(statm)
+        assert!(rss < expected_max_rss_kb, "RSS usage is {}Kb, but expected less than {}Kb", rss, expected_max_rss_kb);
     }
 
     #[test]
@@ -198,7 +206,7 @@ mod tests {
         let mut opts = Options::default();
         opts.compression = Compression::None;
         let filename = "/tmp/sstable_big";
-        test_large_file_with_options(opts, filename);
+        test_large_file_with_options(opts, filename, 500);
     }
 
     #[test]
@@ -206,6 +214,6 @@ mod tests {
         let mut opts = Options::default();
         opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
-        test_large_file_with_options(opts, filename);
+        test_large_file_with_options(opts, filename, 500);
     }
 }
