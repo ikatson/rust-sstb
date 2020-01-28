@@ -94,14 +94,14 @@ pub trait RawSSTableWriter {
 }
 
 #[derive(Debug)]
-pub struct Options {
+pub struct WriteOptions {
     pub compression: Compression,
     pub flush_every: usize,
 }
 
-impl Default for Options {
+impl Default for WriteOptions {
     fn default() -> Self {
-        Options {
+        WriteOptions {
             compression: Compression::None,
             flush_every: 4096,
         }
@@ -115,9 +115,9 @@ pub fn open<P: AsRef<Path>>(_filename: P) -> reader::SSTableReader {
 pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
     map: &BTreeMap<String, D>,
     filename: P,
-    options: Option<Options>,
+    options: Option<WriteOptions>,
 ) -> Result<()> {
-    let options = options.unwrap_or_else(|| Options::default());
+    let options = options.unwrap_or_else(|| WriteOptions::default());
     let mut writer = writer::SSTableWriterV1::new(filename, options)?;
 
     for (key, value) in map.iter() {
@@ -141,7 +141,7 @@ mod tests {
         pid_line.trim().parse::<usize>().unwrap()
     }
 
-    fn test_basic_sanity(options: Options, filename: &str) {
+    fn test_basic_sanity(options: WriteOptions, filename: &str) {
         let mut map = BTreeMap::new();
         map.insert("foo".into(), b"some foo");
         map.insert("bar".into(), b"some bar");
@@ -165,19 +165,19 @@ mod tests {
 
     #[test]
     fn test_uncompressed_basic_sanity() {
-        let mut options = Options::default();
+        let mut options = WriteOptions::default();
         options.compression = Compression::None;
         test_basic_sanity(options, "/tmp/sstable");
     }
 
     #[test]
     fn test_compressed_with_zlib_basic_sanity() {
-        let mut options = Options::default();
+        let mut options = WriteOptions::default();
         options.compression = Compression::Zlib;
         test_basic_sanity(options, "/tmp/sstable_zlib");
     }
 
-    fn test_large_file_with_options(opts: Options, filename: &str, expected_max_rss_kb: usize) {
+    fn test_large_file_with_options(opts: WriteOptions, filename: &str, expected_max_rss_kb: usize) {
         let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
 
         let buf = [0; 1024];
@@ -197,23 +197,22 @@ mod tests {
             assert_eq!(val.as_bytes().len(), 1024);
         }
         let rss = get_current_pid_rss();
-
         assert!(rss < expected_max_rss_kb, "RSS usage is {}Kb, but expected less than {}Kb", rss, expected_max_rss_kb);
     }
 
     #[test]
     fn test_large_mmap_file() {
-        let mut opts = Options::default();
+        let mut opts = WriteOptions::default();
         opts.compression = Compression::None;
         let filename = "/tmp/sstable_big";
-        test_large_file_with_options(opts, filename, 500);
+        test_large_file_with_options(opts, filename, 10_000);
     }
 
     #[test]
     fn test_large_zlib_file() {
-        let mut opts = Options::default();
+        let mut opts = WriteOptions::default();
         opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
-        test_large_file_with_options(opts, filename, 500);
+        test_large_file_with_options(opts, filename, 10_000);
     }
 }

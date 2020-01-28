@@ -22,7 +22,7 @@ pub struct SSTableWriterV1 {
 }
 
 impl SSTableWriterV1 {
-    pub fn new<P: AsRef<Path>>(path: P, options: Options) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, options: WriteOptions) -> Result<Self> {
         let file = File::create(path)?;
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write(MAGIC)?;
