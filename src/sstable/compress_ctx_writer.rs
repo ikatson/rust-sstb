@@ -4,7 +4,7 @@ use super::*;
 use poswriter::PosWriter;
 
 pub trait CompressionContextWriter<I: Write>: Write {
-    fn relative_offset(&mut self) -> Result<usize>;
+    fn written_bytes_size_hint(&mut self) -> Result<usize>;
     fn reset_compression_context(&mut self) -> Result<usize>;
     fn into_inner(self: Box<Self>) -> Result<PosWriter<I>>;
 }
@@ -34,7 +34,7 @@ impl<W: Write> Write for UncompressedWriter<W> {
 }
 
 impl<W: Write> CompressionContextWriter<W> for UncompressedWriter<W> {
-    fn relative_offset(&mut self) -> Result<usize> {
+    fn written_bytes_size_hint(&mut self) -> Result<usize> {
         Ok(self.writer.current_offset() - self.initial)
     }
     fn reset_compression_context(&mut self) -> Result<usize> {
@@ -90,7 +90,7 @@ impl<W: Write> ZlibWriter<W> {
 }
 
 impl<W: Write> CompressionContextWriter<W> for ZlibWriter<W> {
-    fn relative_offset(&mut self) -> Result<usize> {
+    fn written_bytes_size_hint(&mut self) -> Result<usize> {
         let _initial = self.initial_offset;
 
         // let current_offset = self.get_mut_encoder()?.get_ref().current_offset();

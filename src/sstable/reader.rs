@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
+use std::borrow::Borrow;
 use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -82,7 +83,7 @@ struct MmapSSTableReaderV1_0 {
     index_start: u64,
     // it's not &'static in reality, but it's bound to mmap's lifetime.
     // It will NOT work with compression.
-    index: BTreeMap<&'static str, usize>,
+    index: BTreeMap<&'static str, u64>,
     cache: block_reader::DirectMemoryAccessBlockManager<'static>,
 }
 
@@ -112,7 +113,7 @@ impl MmapSSTableReaderV1_0 {
             index_data = &index_data[zerobyte + 1..];
             let value: Length = bincode::deserialize(&index_data[..value_length_encoded_size])?;
             index_data = &index_data[value_length_encoded_size..];
-            index.insert(key, value.0 as usize);
+            index.insert(key, value.0);
         }
 
         let mmap_buf = &mmap[..];
@@ -127,33 +128,42 @@ impl MmapSSTableReaderV1_0 {
     }
 }
 
+fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &str, end_default: T) -> Option<(T, T)>
+where K: Borrow<str> + std::cmp::Ord,
+      T: Copy,
+{
+    use std::ops::Bound;
+
+    let start = {
+        let mut iter_left = map
+            .range::<str, _>((Bound::Unbounded, Bound::Included(key)));
+        let closest_left = iter_left.next_back();
+        match closest_left {
+            Some((_, offset)) => *offset,
+            None => return None,
+        }
+    };
+
+    let end = {
+        let mut iter_right = map
+            .range::<str, _>((Bound::Excluded(key), Bound::Unbounded));
+        let closest_right = iter_right.next_back();
+        match closest_right {
+            Some((_, offset)) => *offset,
+            None => end_default,
+        }
+    };
+    Some((start, end))
+}
+
 impl InnerReader for MmapSSTableReaderV1_0 {
     fn get<'a, 'b>(&'a mut self, key: &'b str) -> Result<Option<GetResult<'a>>> {
-        use std::ops::Bound;
-
-        let start = {
-            let mut iter_left = self
-                .index
-                .range::<&str, _>((Bound::Unbounded, Bound::Included(key)));
-            let closest_left = iter_left.next_back();
-            match closest_left {
-                Some((_, offset)) => *offset,
-                None => return Ok(None),
-            }
+        let (offset, right_bound) = match find_bounds(&self.index, key, self.index_start) {
+            Some(v) => v,
+            None => return Ok(None)
         };
 
-        let end = {
-            let mut iter_right = self
-                .index
-                .range::<&str, _>((Bound::Excluded(key), Bound::Unbounded));
-            let closest_right = iter_right.next_back();
-            match closest_right {
-                Some((_, offset)) => *offset,
-                None => self.index_start as usize,
-            }
-        };
-
-        let block = self.cache.get_block(start as u64, end as u64)?;
+        let block = self.cache.get_block(offset, right_bound)?;
         let found = block.find_key(key)?;
         Ok(found.map(|v| GetResult::Ref(v)))
     }
@@ -228,30 +238,10 @@ impl ZlibReaderV1_0 {
 
 impl InnerReader for ZlibReaderV1_0 {
     fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
-        use std::ops::Bound;
-
-        let offset = {
-            let mut iter_left = self
-                .index
-                .range::<str, _>((Bound::Unbounded, Bound::Included(key)));
-            let closest_left = iter_left.next_back();
-            match closest_left {
-                Some((_, offset)) => *offset,
-                None => return Ok(None),
-            }
-        };
-
         let index_start = self.data_start + self.meta.data_len as u64;
-
-        let right_bound = {
-            let mut iter_right = self
-                .index
-                .range::<str, _>((Bound::Excluded(key), Bound::Unbounded));
-            let closest_right = iter_right.next_back();
-            match closest_right {
-                Some((_, offset)) => *offset,
-                None => index_start,
-            }
+        let (offset, right_bound) = match find_bounds(&self.index, key, index_start) {
+            Some(v) => v,
+            None => return Ok(None)
         };
 
         let block = self.cache.get_block(offset, right_bound)?;

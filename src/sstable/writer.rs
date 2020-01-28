@@ -87,7 +87,8 @@ impl RawSSTableWriter for SSTableWriterV1 {
         // If the current offset is too high, flush, and add this record to the index.
         //
         // Also reset the compression to a fresh state.
-        if self.file.relative_offset()? + value.len() >= self.flush_every || self.meta.items == 0 {
+        let approx_msg_len = key.len() + 5 + value.len();
+        if self.file.written_bytes_size_hint()? + approx_msg_len >= self.flush_every || self.meta.items == 0 {
             let offset = self.file.reset_compression_context()?;
             self.sparse_index.insert(key.to_owned(), offset);
         }
