@@ -77,6 +77,11 @@ fn read_metadata(file: &mut File) -> Result<MetaResult> {
     })
 }
 
+enum BlockCacheTypeForMmapSSTableReaderV1_0 {
+    Caching(block_reader::CachingDMABlockManager<'static>),
+    NotCaching(block_reader::DMABlockManager<'static>),
+}
+
 struct MmapSSTableReaderV1_0 {
     #[allow(dead_code)]
     mmap: memmap::Mmap,
@@ -84,48 +89,8 @@ struct MmapSSTableReaderV1_0 {
     // it's not &'static in reality, but it's bound to mmap's lifetime.
     // It will NOT work with compression.
     index: BTreeMap<&'static str, u64>,
-    cache: block_reader::DirectMemoryAccessBlockManager<'static>,
-}
-
-impl MmapSSTableReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: ReadCache) -> Result<Self> {
-        let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
-
-        let mut index = BTreeMap::new();
-
-        let index_start = data_start + (meta.data_len as u64);
-
-        let mut index_data = &mmap[(index_start as usize)..];
-        if index_data.len() != meta.index_len {
-            return Err(Error::InvalidData("invalid index length"));
-        }
-
-        let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
-
-        while index_data.len() > 0 {
-            let string_end = memchr::memchr(0, index_data);
-            let zerobyte = match string_end {
-                Some(idx) => idx,
-                None => return Err(Error::InvalidData("corrupt index")),
-            };
-            let key = std::str::from_utf8(&index_data[..zerobyte])?;
-            let key: &'static str = unsafe { &*(key as *const str) };
-            index_data = &index_data[zerobyte + 1..];
-            let value: Length = bincode::deserialize(&index_data[..value_length_encoded_size])?;
-            index_data = &index_data[value_length_encoded_size..];
-            index.insert(key, value.0);
-        }
-
-        let mmap_buf = &mmap[..];
-        let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
-
-        Ok(MmapSSTableReaderV1_0 {
-            mmap: mmap,
-            index_start: index_start,
-            index: index,
-            cache: block_reader::DirectMemoryAccessBlockManager::new(mmap_buf, cache)
-        })
-    }
+    // cache: block_reader::CachingDMABlockManager<'static>,
+    cache: BlockCacheTypeForMmapSSTableReaderV1_0,
 }
 
 fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &str, end_default: T) -> Option<(T, T)>
@@ -156,6 +121,53 @@ where K: Borrow<str> + std::cmp::Ord,
     Some((start, end))
 }
 
+
+impl MmapSSTableReaderV1_0 {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: Option<ReadCache>) -> Result<Self> {
+        let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
+
+        let mut index = BTreeMap::new();
+
+        let index_start = data_start + (meta.data_len as u64);
+
+        let mut index_data = &mmap[(index_start as usize)..];
+        if index_data.len() != meta.index_len {
+            return Err(Error::InvalidData("invalid index length"));
+        }
+
+        let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
+
+        while index_data.len() > 0 {
+            let string_end = memchr::memchr(0, index_data);
+            let zerobyte = match string_end {
+                Some(idx) => idx,
+                None => return Err(Error::InvalidData("corrupt index")),
+            };
+            let key = std::str::from_utf8(&index_data[..zerobyte])?;
+            let key: &'static str = unsafe { &*(key as *const str) };
+            index_data = &index_data[zerobyte + 1..];
+            let value: Length = bincode::deserialize(&index_data[..value_length_encoded_size])?;
+            index_data = &index_data[value_length_encoded_size..];
+            index.insert(key, value.0);
+        }
+
+        let mmap_buf = &mmap[..];
+        let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
+
+        use BlockCacheTypeForMmapSSTableReaderV1_0::*;
+
+        Ok(MmapSSTableReaderV1_0 {
+            mmap: mmap,
+            index_start: index_start,
+            index: index,
+            cache: match cache {
+                Some(cache) => Caching(block_reader::CachingDMABlockManager::new(mmap_buf, cache)),
+                None => NotCaching(block_reader::DMABlockManager::new(mmap_buf))
+            }
+        })
+    }
+}
+
 impl InnerReader for MmapSSTableReaderV1_0 {
     fn get<'a, 'b>(&'a mut self, key: &'b str) -> Result<Option<GetResult<'a>>> {
         let (offset, right_bound) = match find_bounds(&self.index, key, self.index_start) {
@@ -163,7 +175,12 @@ impl InnerReader for MmapSSTableReaderV1_0 {
             None => return Ok(None)
         };
 
-        let block = self.cache.get_block(offset, right_bound)?;
+        use BlockCacheTypeForMmapSSTableReaderV1_0::*;
+        let block: &mut dyn Block = match &mut self.cache {
+            Caching(bm) => bm.get_block(offset, right_bound)?,
+            NotCaching(bm) => bm.get_block(offset, right_bound)?
+        };
+
         let found = block.find_key(key)?;
         Ok(found.map(|v| GetResult::Ref(v)))
     }
@@ -191,7 +208,7 @@ struct ZlibReaderV1_0 {
 }
 
 impl ZlibReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: ReadCache) -> Result<Self> {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: Option<ReadCache>) -> Result<Self> {
         let index_start = data_start + (meta.data_len as u64);
 
         file.seek(SeekFrom::Start(index_start))?;
@@ -257,19 +274,18 @@ pub struct SSTableReader {
 
 #[derive(Copy,Clone,Debug)]
 pub enum ReadCache {
-    None,
     Blocks(usize),
     Unbounded,
 }
 
 #[derive(Copy,Clone,Debug)]
 pub struct ReadOptions {
-    cache: ReadCache,
+    cache: Option<ReadCache>,
 }
 
 impl Default for ReadOptions {
     fn default() -> Self {
-        Self{cache: ReadCache::Blocks(32)}
+        Self{cache: Some(ReadCache::Blocks(32))}
     }
 }
 

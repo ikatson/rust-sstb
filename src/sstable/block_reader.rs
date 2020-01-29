@@ -193,6 +193,16 @@ impl<R: BufRead> Block for CachingReaderBlock<R> {
 
 pub struct OneTimeUseReaderBlock<R> {
     reader: R,
+    tmp: Vec<u8>,
+}
+
+impl<R> OneTimeUseReaderBlock<R> {
+    fn new(reader: R) -> Self {
+        Self{
+            reader: reader,
+            tmp: Vec::new(),
+        }
+    }
 }
 
 impl<R: BufRead> Block for OneTimeUseReaderBlock<R> {
@@ -213,39 +223,35 @@ impl<R: BufRead> Block for OneTimeUseReaderBlock<R> {
             self.reader.read_exact(&mut value)?;
 
             if start_key == key {
-                // TODO this would allocate the reference.
-                unimplemented!()
+                std::mem::replace(&mut self.tmp, value);
+                return Ok(Some(&self.tmp))
             }
         }
         return Ok(None)
     }
 }
 
-pub struct DirectMemoryAccessBlockManager<'a, B = CachingReferenceBlock<'a>> {
+pub struct CachingDMABlockManager<'a, B = CachingReferenceBlock<'a>> {
     buf: &'a [u8],
-    last_block: Option<B>,
-    block_cache: Option<LruCache<u64, B>>
+    block_cache: LruCache<u64, B>
 }
 
-impl<'a, B: Block> DirectMemoryAccessBlockManager<'a, B> {
+impl<'a, B: Block> CachingDMABlockManager<'a, B> {
     pub fn new(buf: &'a [u8], cache: reader::ReadCache) -> Self {
         let cache = match cache {
-            reader::ReadCache::None => None,
-            reader::ReadCache::Blocks(b) => Some(LruCache::new(b)),
-            reader::ReadCache::Unbounded => Some(LruCache::unbounded()),
+            reader::ReadCache::Blocks(b) => LruCache::new(b),
+            reader::ReadCache::Unbounded => LruCache::unbounded(),
         };
         Self{
             buf: buf,
-            last_block: None,
             block_cache: cache,
         }
     }
 }
 
-impl<'r> BlockManager<CachingReferenceBlock<'r>> for DirectMemoryAccessBlockManager<'r, CachingReferenceBlock<'r>> {
+impl<'r> BlockManager<CachingReferenceBlock<'r>> for CachingDMABlockManager<'r, CachingReferenceBlock<'r>> {
     fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut CachingReferenceBlock<'r>> {
-        match self.block_cache.as_mut() {
-            Some(block_cache) => match block_cache.get_mut(&start) {
+        match self.block_cache.get_mut(&start) {
                 Some(block) => Ok(unsafe {&mut *(block as *mut _)}),
                 None => {
                     let block = CachingReferenceBlock{
@@ -254,20 +260,34 @@ impl<'r> BlockManager<CachingReferenceBlock<'r>> for DirectMemoryAccessBlockMana
                         last_read_key: None,
                         seen_keys: HashMap::new()
                     };
-                    block_cache.put(start, block);
-                    Ok(block_cache.get_mut(&start).unwrap())
+                    self.block_cache.put(start, block);
+                    Ok(self.block_cache.get_mut(&start).unwrap())
                 }
-            },
-            None => {
-                self.last_block.take();
-                Ok(self.last_block.get_or_insert(CachingReferenceBlock{
-                    buf: &self.buf[start as usize..end as usize],
-                    cursor: 0,
-                    last_read_key: None,
-                    seen_keys: HashMap::new()
-                }))
             }
+    }
+}
+
+pub struct DMABlockManager<'a, B = ReferenceBlock<'a>> {
+    buf: &'a [u8],
+    last_block: Option<B>,
+}
+
+impl<'a, B: Block> DMABlockManager<'a, B> {
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self{
+            buf: buf,
+            last_block: None,
         }
+    }
+}
+
+impl<'r> BlockManager<ReferenceBlock<'r>> for DMABlockManager<'r, ReferenceBlock<'r>> {
+    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut ReferenceBlock<'r>> {
+        let block = ReferenceBlock{
+            buf: &self.buf[start as usize..end as usize],
+        };
+        self.last_block.take();
+        Ok(self.last_block.get_or_insert(block))
     }
 }
 
