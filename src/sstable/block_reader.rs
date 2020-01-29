@@ -295,26 +295,29 @@ pub trait ReaderFactory<'b, R: BufRead + 'b> {
     fn make_reader<'a>(&'a self, buf: &'b [u8]) -> R;
 }
 
-pub struct DMAThenReadBlockManager<'a, B, F> {
+pub struct CachingDMAThenReadBlockManager<'a, B, F> {
     buf: &'a [u8],
     block_cache: LruCache<u64, B>,
     factory: F,
 }
 
-impl<'a, R, F> DMAThenReadBlockManager<'a, CachingReaderBlock<R>, F>
+impl<'a, R, F> CachingDMAThenReadBlockManager<'a, CachingReaderBlock<R>, F>
     where R: BufRead + 'a,
           F: ReaderFactory<'a, R>
 {
-    pub fn new(buf: &'a [u8], factory: F, cache_capacity: usize) -> Self {
+    pub fn new(buf: &'a [u8], factory: F, cache: reader::ReadCache) -> Self {
         Self{
             buf: buf,
-            block_cache: LruCache::new(cache_capacity),
+            block_cache: match cache {
+                reader::ReadCache::Blocks(b) => LruCache::new(b),
+                reader::ReadCache::Unbounded => LruCache::unbounded()
+            },
             factory: factory,
         }
     }
 }
 
-impl<'r, R, F> BlockManager<CachingReaderBlock<R>> for DMAThenReadBlockManager<'r, CachingReaderBlock<R>, F>
+impl<'r, R, F> BlockManager<CachingReaderBlock<R>> for CachingDMAThenReadBlockManager<'r, CachingReaderBlock<R>, F>
     where R: BufRead + 'r,
           F: ReaderFactory<'r, R>
 {
@@ -332,5 +335,36 @@ impl<'r, R, F> BlockManager<CachingReaderBlock<R>> for DMAThenReadBlockManager<'
                 Ok(self.block_cache.get_mut(&start).unwrap())
             }
         }
+    }
+}
+
+pub struct DMAThenReadBlockManager<'a, B, F> {
+    buf: &'a [u8],
+    last_block: Option<B>,
+    factory: F,
+}
+
+impl<'a, R, F> DMAThenReadBlockManager<'a, OneTimeUseReaderBlock<R>, F>
+    where R: BufRead + 'a,
+          F: ReaderFactory<'a, R>
+{
+    pub fn new(buf: &'a [u8], factory: F) -> Self {
+        Self{
+            buf: buf,
+            last_block: None,
+            factory: factory,
+        }
+    }
+}
+
+impl<'r, R, F> BlockManager<OneTimeUseReaderBlock<R>> for DMAThenReadBlockManager<'r, OneTimeUseReaderBlock<R>, F>
+    where R: BufRead + 'r,
+          F: ReaderFactory<'r, R>
+{
+    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut OneTimeUseReaderBlock<R>> {
+        self.last_block.take();
+        Ok(self.last_block.get_or_insert(OneTimeUseReaderBlock::new(
+            self.factory.make_reader(&self.buf[start as usize..end as usize])
+        )))
     }
 }
