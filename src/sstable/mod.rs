@@ -30,7 +30,6 @@ use std::path::Path;
 use bincode;
 use memmap;
 use serde::{Deserialize, Serialize};
-use byteorder::{LittleEndian, ByteOrder};
 
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
@@ -119,21 +118,6 @@ impl KVLength {
     const fn encoded_size() -> usize {
         U32_SIZE + U32_SIZE
     }
-    fn deserialize(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::encoded_size() {
-            return Err(INVALID_DATA)
-        }
-        Ok(Self{
-            key_length: LittleEndian::read_u32(buf),
-            value_length: LittleEndian::read_u32(&buf[U32_SIZE..]),
-        })
-    }
-    fn serialize(&self) -> [u8; Self::encoded_size()] {
-        let mut result = [0; Self::encoded_size()];
-        LittleEndian::write_u32(&mut result, self.key_length);
-        LittleEndian::write_u32(&mut result[U32_SIZE..], self.value_length);
-        result
-    }
     fn deserialize_from<R: Read>(r: R) -> Result<Self> {
         Ok(bincode::deserialize_from(r)?)
     }
@@ -161,8 +145,8 @@ impl KVOffset {
             offset: offset,
         })
     }
-    fn encoded_size() -> usize {
-        bincode::serialized_size(&Self::default()).unwrap() as usize
+    const fn encoded_size() -> usize {
+        return U32_SIZE + U64_SIZE
     }
     fn deserialize_from<R: Read>(r: R) -> Result<Self> {
         Ok(bincode::deserialize_from(r)?)
@@ -310,7 +294,6 @@ mod tests {
         let mut reader = reader::SSTableReader::new_with_options(filename, &read_opts).unwrap();
         iter.reset();
         while let Some(key) = iter.next() {
-            let val = reader.get(key.as_bytes()).unwrap().expect(key);
             let val = reader.get(key.as_bytes()).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
         }

@@ -39,7 +39,7 @@ impl<'r> Block for CachingReferenceBlock<'r> {
                 let kv_length_encoded_size = KVLength::encoded_size();
 
                 while self.cursor < self.buf.len() {
-                    let kvlength = KVLength::deserialize(&self.buf[self.cursor..])?;
+                    let kvlength: KVLength = bincode::deserialize_from(&self.buf[self.cursor..])?;
                     let (start_key, cursor) = {
                         let key_start = self.cursor + kv_length_encoded_size;
                         let key_end = key_start + kvlength.key_length as usize;
