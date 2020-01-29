@@ -1,20 +1,18 @@
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::borrow::Borrow;
-use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use bincode;
 use memmap;
 
-use memchr;
-
 use super::*;
 
-use block_reader::{BlockManager, Block};
+use block_reader::{Block, BlockManager};
 
 trait InnerReader {
-    fn get(&mut self, key: &str) -> Result<Option<GetResult>>;
+    fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -83,19 +81,19 @@ struct MmapSSTableReaderV1_0 {
     index_start: u64,
     // it's not &'static in reality, but it's bound to mmap's lifetime.
     // It will NOT work with compression.
-    index: BTreeMap<&'static str, u64>,
-    cache: Box<dyn BlockManager>
+    index: BTreeMap<&'static [u8], u64>,
+    cache: Box<dyn BlockManager>,
 }
 
-fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &str, end_default: T) -> Option<(T, T)>
-where K: Borrow<str> + std::cmp::Ord,
-      T: Copy,
+fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &[u8], end_default: T) -> Option<(T, T)>
+where
+    K: Borrow<[u8]> + std::cmp::Ord,
+    T: Copy,
 {
     use std::ops::Bound;
 
     let start = {
-        let mut iter_left = map
-            .range::<str, _>((Bound::Unbounded, Bound::Included(key)));
+        let mut iter_left = map.range::<[u8], _>((Bound::Unbounded, Bound::Included(key)));
         let closest_left = iter_left.next_back();
         match closest_left {
             Some((_, offset)) => *offset,
@@ -104,8 +102,7 @@ where K: Borrow<str> + std::cmp::Ord,
     };
 
     let end = {
-        let mut iter_right = map
-            .range::<str, _>((Bound::Excluded(key), Bound::Unbounded));
+        let mut iter_right = map.range::<[u8], _>((Bound::Excluded(key), Bound::Unbounded));
         let closest_right = iter_right.next_back();
         match closest_right {
             Some((_, offset)) => *offset,
@@ -115,9 +112,13 @@ where K: Borrow<str> + std::cmp::Ord,
     Some((start, end))
 }
 
-
 impl MmapSSTableReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: Option<ReadCache>) -> Result<Self> {
+    fn new(
+        meta: MetaV1_0,
+        data_start: u64,
+        mut file: File,
+        cache: Option<ReadCache>,
+    ) -> Result<Self> {
         let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
 
         let mut index = BTreeMap::new();
@@ -129,24 +130,28 @@ impl MmapSSTableReaderV1_0 {
             return Err(Error::InvalidData("invalid index length"));
         }
 
-        let value_length_encoded_size = bincode::serialized_size(&Length(0))? as usize;
+        let kvoffset_encoded_size = KVOffset::encoded_size();
 
         while index_data.len() > 0 {
-            let string_end = memchr::memchr(0, index_data);
-            let zerobyte = match string_end {
-                Some(idx) => idx,
-                None => return Err(Error::InvalidData("corrupt index")),
-            };
-            let key = std::str::from_utf8(&index_data[..zerobyte])?;
-            let key: &'static str = unsafe { &*(key as *const str) };
-            index_data = &index_data[zerobyte + 1..];
-            let value: Length = bincode::deserialize(&index_data[..value_length_encoded_size])?;
-            index_data = &index_data[value_length_encoded_size..];
-            index.insert(key, value.0);
+            let kvoffset = bincode::deserialize::<KVOffset>(
+                index_data
+                    .get(..kvoffset_encoded_size)
+                    .ok_or(INVALID_DATA)?,
+            )?;
+            let key_end = kvoffset_encoded_size + kvoffset.key_length as usize;
+            let key = index_data
+                .get(kvoffset_encoded_size..key_end)
+                .ok_or(INVALID_DATA)?;
+            let key: &'static [u8] = unsafe { &*(key as *const _) };
+            index.insert(key, kvoffset.offset);
+            if index_data.len() == key_end {
+                break
+            }
+            index_data = &index_data[key_end..];
         }
 
         let mmap_buf = &mmap[..];
-        let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
+        let mmap_buf: &'static [u8] = unsafe { &*(mmap_buf as *const _) };
 
         Ok(MmapSSTableReaderV1_0 {
             mmap: mmap,
@@ -154,17 +159,17 @@ impl MmapSSTableReaderV1_0 {
             index: index,
             cache: match cache {
                 Some(cache) => Box::new(block_reader::CachingDMABlockManager::new(mmap_buf, cache)),
-                None => Box::new(block_reader::DMABlockManager::new(mmap_buf))
-            }
+                None => Box::new(block_reader::DMABlockManager::new(mmap_buf)),
+            },
         })
     }
 }
 
 impl InnerReader for MmapSSTableReaderV1_0 {
-    fn get<'a, 'b>(&'a mut self, key: &'b str) -> Result<Option<GetResult<'a>>> {
+    fn get<'a, 'b>(&'a mut self, key: &'b [u8]) -> Result<Option<GetResult<'a>>> {
         let (offset, right_bound) = match find_bounds(&self.index, key, self.index_start) {
             Some(v) => v,
-            None => return Ok(None)
+            None => return Ok(None),
         };
 
         let block = self.cache.get_block(offset, right_bound)?;
@@ -191,11 +196,16 @@ struct ZlibReaderV1_0 {
     cache: Box<dyn BlockManager>,
     meta: MetaV1_0,
     data_start: u64,
-    index: BTreeMap<String, u64>,
+    index: BTreeMap<Vec<u8>, u64>,
 }
 
 impl ZlibReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: Option<ReadCache>) -> Result<Self> {
+    fn new(
+        meta: MetaV1_0,
+        data_start: u64,
+        mut file: File,
+        cache: Option<ReadCache>,
+    ) -> Result<Self> {
         let index_start = data_start + (meta.data_len as u64);
 
         file.seek(SeekFrom::Start(index_start))?;
@@ -203,22 +213,17 @@ impl ZlibReaderV1_0 {
         let file_buf_reader = BufReader::new(file);
         let decoder = flate2::read::ZlibDecoder::new(file_buf_reader);
         let mut buf_decoder = BufReader::new(decoder);
-        let mut buf = Vec::with_capacity(4096);
         let mut index = BTreeMap::new();
 
         loop {
-            buf.truncate(0);
-            let size = buf_decoder.read_until(0, &mut buf)?;
-            if size == 0 {
-                // Index is read fully.
-                break;
-            }
-            if buf[size - 1] != 0 {
-                return Err(Error::InvalidData("corrupt file, no zero"));
-            }
-            let key = std::str::from_utf8(&buf[..size - 1])?.to_owned();
-            let length = bincode::deserialize_from::<_, Length>(&mut buf_decoder)?.0;
-            index.insert(key, length);
+            let kvoffset = KVOffset::deserialize_from_eof_is_ok(&mut buf_decoder)?;
+            let kvoffset = match kvoffset {
+                Some(kvoffset) => kvoffset,
+                None => break,
+            };
+            let mut key = vec![0; kvoffset.key_length as usize];
+            buf_decoder.read_exact(&mut key)?;
+            index.insert(key, kvoffset.offset);
         }
 
         // TODO: check that the index size matches metadata
@@ -226,15 +231,22 @@ impl ZlibReaderV1_0 {
         let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
 
         let mmap_buf = &mmap[..];
-        let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
+        let mmap_buf: &'static [u8] = unsafe { &*(mmap_buf as *const _) };
 
-        let zlib_factory = ZlibFactory{};
+        let zlib_factory = ZlibFactory {};
 
         Ok(ZlibReaderV1_0 {
             mmap: mmap,
             cache: match cache {
-                Some(cache) => Box::new(block_reader::CachingDMAThenReadBlockManager::new(mmap_buf, zlib_factory, cache)),
-                None => Box::new(block_reader::DMAThenReadBlockManager::new(mmap_buf, zlib_factory))
+                Some(cache) => Box::new(block_reader::CachingDMAThenReadBlockManager::new(
+                    mmap_buf,
+                    zlib_factory,
+                    cache,
+                )),
+                None => Box::new(block_reader::DMAThenReadBlockManager::new(
+                    mmap_buf,
+                    zlib_factory,
+                )),
             },
             data_start: data_start,
             meta: meta,
@@ -244,11 +256,11 @@ impl ZlibReaderV1_0 {
 }
 
 impl InnerReader for ZlibReaderV1_0 {
-    fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
+    fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>> {
         let index_start = self.data_start + self.meta.data_len as u64;
         let (offset, right_bound) = match find_bounds(&self.index, key, index_start) {
             Some(v) => v,
-            None => return Ok(None)
+            None => return Ok(None),
         };
 
         let block = self.cache.get_block(offset, right_bound)?;
@@ -261,20 +273,22 @@ pub struct SSTableReader {
     inner: Box<dyn InnerReader>,
 }
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum ReadCache {
     Blocks(usize),
     Unbounded,
 }
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct ReadOptions {
     cache: Option<ReadCache>,
 }
 
 impl Default for ReadOptions {
     fn default() -> Self {
-        Self{cache: Some(ReadCache::Blocks(32))}
+        Self {
+            cache: Some(ReadCache::Blocks(32)),
+        }
     }
 }
 
@@ -291,12 +305,14 @@ impl SSTableReader {
             MetaData::V1_0(meta) => meta,
         };
         let inner: Box<dyn InnerReader> = match meta.compression {
-            Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file, opts.cache)?),
+            Compression::None => Box::new(MmapSSTableReaderV1_0::new(
+                meta, data_start, file, opts.cache,
+            )?),
             Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, opts.cache)?),
         };
         Ok(SSTableReader { inner: inner })
     }
-    pub fn get(&mut self, key: &str) -> Result<Option<GetResult>> {
+    pub fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>> {
         self.inner.get(key)
     }
 }

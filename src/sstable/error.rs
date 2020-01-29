@@ -1,5 +1,7 @@
 use super::Version;
 
+pub const INVALID_DATA: Error = Error::InvalidData("corrupt SStable or bug");
+
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
@@ -8,6 +10,8 @@ pub enum Error {
     UnsupportedVersion(Version),
     Bincode(bincode::Error),
     Utf8Error(std::str::Utf8Error),
+    KeyTooLong(usize),
+    ValueTooLong(usize),
     StdStringFromUtf8Error(std::string::FromUtf8Error),
 }
 
@@ -34,4 +38,3 @@ impl From<std::string::FromUtf8Error> for Error {
         Error::StdStringFromUtf8Error(e)
     }
 }
-

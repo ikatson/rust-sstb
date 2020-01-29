@@ -39,7 +39,7 @@ impl SortedStringIterator {
     pub fn next(&mut self) -> Option<&str> {
         let buflen = self.buf.len();
         if self.limit > 0 && self.counter == self.limit {
-            return None
+            return None;
         }
         if self.current == buflen {
             self.current = buflen - 1;

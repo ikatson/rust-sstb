@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::{Seek, SeekFrom, Write};
@@ -19,7 +18,7 @@ pub struct SSTableWriterV1 {
     meta_start: u64,
     data_start: u64,
     flush_every: usize,
-    sparse_index: Vec<(String, u64)>,
+    sparse_index: Vec<(Vec<u8>, u64)>,
 }
 
 impl SSTableWriterV1 {
@@ -71,10 +70,9 @@ impl SSTableWriterV1 {
             } => {
                 let mut writer = file;
                 let index_start = writer.reset_compression_context()?;
-                for (key, value) in sparse_index.into_iter() {
-                    writer.write_all(key.as_bytes())?;
-                    writer.write_all(b"\0")?;
-                    bincode::serialize_into(&mut writer, &Length(value as u64))?;
+                for (key, offset) in sparse_index.into_iter() {
+                    KVOffset::new(key.len(), offset)?.serialize_into(&mut writer)?;
+                    writer.write_all(&key)?;
                 }
                 let index_len = writer.reset_compression_context()? - index_start;
                 meta.finished = true;
@@ -90,18 +88,19 @@ impl SSTableWriterV1 {
 }
 
 impl RawSSTableWriter for SSTableWriterV1 {
-    fn set(&mut self, key: &str, value: &[u8]) -> Result<()> {
+    fn set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         // If the current offset is too high, flush, and add this record to the index.
         //
         // Also reset the compression to a fresh state.
         let approx_msg_len = key.len() + 5 + value.len();
-        if self.file.written_bytes_size_hint()? + approx_msg_len >= self.flush_every || self.meta.items == 0 {
+        if self.file.written_bytes_size_hint()? + approx_msg_len >= self.flush_every
+            || self.meta.items == 0
+        {
             let offset = self.file.reset_compression_context()?;
             self.sparse_index.push((key.to_owned(), offset as u64));
         }
-        self.file.write_all(key.as_bytes())?;
-        self.file.write_all(b"\0")?;
-        bincode::serialize_into(&mut self.file, &Length(value.len() as u64))?;
+        KVLength::new(key.len(), value.len())?.serialize_into(&mut self.file)?;
+        self.file.write_all(key)?;
         self.file.write_all(value)?;
         self.meta.items += 1;
         Ok(())

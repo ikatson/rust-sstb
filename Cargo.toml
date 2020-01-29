@@ -9,6 +9,5 @@ edition = "2018"
 memmap = "^0.7"
 bincode = "^1"
 serde = {version = "*", features = ["derive"]}
-memchr = "^2"
 flate2 = "^1"
 lru = "^0.4"
