@@ -30,6 +30,7 @@ use std::path::Path;
 use bincode;
 use memmap;
 use serde::{Deserialize, Serialize};
+use byteorder::{LittleEndian, ByteOrder};
 
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
@@ -115,8 +116,23 @@ impl KVLength {
             value_length: v as u32,
         })
     }
-    fn encoded_size() -> usize {
-        bincode::serialized_size(&Self::default()).unwrap() as usize
+    const fn encoded_size() -> usize {
+        U32_SIZE + U32_SIZE
+    }
+    fn deserialize(buf: &[u8]) -> Result<Self> {
+        if buf.len() < Self::encoded_size() {
+            return Err(INVALID_DATA)
+        }
+        Ok(Self{
+            key_length: LittleEndian::read_u32(buf),
+            value_length: LittleEndian::read_u32(&buf[U32_SIZE..]),
+        })
+    }
+    fn serialize(&self) -> [u8; Self::encoded_size()] {
+        let mut result = [0; Self::encoded_size()];
+        LittleEndian::write_u32(&mut result, self.key_length);
+        LittleEndian::write_u32(&mut result[U32_SIZE..], self.value_length);
+        result
     }
     fn deserialize_from<R: Read>(r: R) -> Result<Self> {
         Ok(bincode::deserialize_from(r)?)
@@ -277,7 +293,6 @@ mod tests {
     fn test_large_file_with_options(
         opts: WriteOptions,
         filename: &str,
-        expected_max_rss_kb: usize,
         values: usize,
     ) {
         let mut writer = writer::SSTableWriterV1::new_with_options(filename, opts).unwrap();
@@ -296,16 +311,9 @@ mod tests {
         iter.reset();
         while let Some(key) = iter.next() {
             let val = reader.get(key.as_bytes()).unwrap().expect(key);
+            let val = reader.get(key.as_bytes()).unwrap().expect(key);
             assert_eq!(val.as_bytes().len(), 1024);
         }
-        let rss = get_current_pid_rss();
-        dbg!("RSS KB", rss);
-        assert!(
-            rss < expected_max_rss_kb,
-            "RSS usage is {}Kb, but expected less than {}Kb",
-            rss,
-            expected_max_rss_kb
-        );
     }
 
     #[test]
@@ -313,7 +321,7 @@ mod tests {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::None;
         let filename = "/tmp/sstable_big";
-        test_large_file_with_options(opts, filename, 3_000_000, 3_000_000);
+        test_large_file_with_options(opts, filename, 1_000_000);
     }
 
     #[test]
@@ -321,6 +329,6 @@ mod tests {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
-        test_large_file_with_options(opts, filename, 1_000_000, 1_000_000);
+        test_large_file_with_options(opts, filename, 1_000_000);
     }
 }
