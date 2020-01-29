@@ -38,11 +38,12 @@ const VERSION_10: Version = Version { major: 1, minor: 0 };
 
 mod block_reader;
 mod compress_ctx_writer;
-mod error;
+pub mod error;
 mod posreader;
 mod poswriter;
-mod reader;
-mod writer;
+
+pub mod reader;
+pub mod writer;
 
 #[cfg(test)]
 mod sorted_string_iterator;
@@ -90,6 +91,7 @@ pub trait RawSSTableWriter {
     /// The keys MUST be unique.
     /// Set of empty value is equal to a delete, and is recorded too.
     fn set(&mut self, key: &str, value: &[u8]) -> Result<()>;
+    /// Close the writer and flush everything to the underlying storage.
     fn close(self) -> Result<()>;
 }
 
@@ -118,7 +120,7 @@ pub fn write_btree_map<D: AsRef<[u8]>, P: AsRef<Path>>(
     options: Option<WriteOptions>,
 ) -> Result<()> {
     let options = options.unwrap_or_else(|| WriteOptions::default());
-    let mut writer = writer::SSTableWriterV1::new(filename, options)?;
+    let mut writer = writer::SSTableWriterV1::new_with_options(filename, options)?;
 
     for (key, value) in map.iter() {
         writer.set(key, value.as_ref())?;
@@ -178,7 +180,7 @@ mod tests {
     }
 
     fn test_large_file_with_options(opts: WriteOptions, filename: &str, expected_max_rss_kb: usize, values: usize) {
-        let mut writer = writer::SSTableWriterV1::new(filename, opts).unwrap();
+        let mut writer = writer::SSTableWriterV1::new_with_options(filename, opts).unwrap();
 
         let buf = [0; 1024];
 
@@ -187,7 +189,7 @@ mod tests {
             writer.set(key, &buf).unwrap();
         }
 
-        writer.write_index().unwrap();
+        writer.finish().unwrap();
 
         let read_opts = reader::ReadOptions::default();
         let mut reader = reader::SSTableReader::new_with_options(filename, &read_opts).unwrap();

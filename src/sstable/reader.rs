@@ -88,7 +88,7 @@ struct MmapSSTableReaderV1_0 {
 }
 
 impl MmapSSTableReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache_size: usize) -> Result<Self> {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: ReadCache) -> Result<Self> {
         let mmap = unsafe { memmap::MmapOptions::new().map(&mut file) }?;
 
         let mut index = BTreeMap::new();
@@ -123,7 +123,7 @@ impl MmapSSTableReaderV1_0 {
             mmap: mmap,
             index_start: index_start,
             index: index,
-            cache: block_reader::DirectMemoryAccessBlockManager::new(mmap_buf, cache_size)
+            cache: block_reader::DirectMemoryAccessBlockManager::new(mmap_buf, cache)
         })
     }
 }
@@ -184,14 +184,14 @@ impl<'r> block_reader::ReaderFactory<'r, ZlibRead<'r>> for ZlibFactory {
 struct ZlibReaderV1_0 {
     #[allow(dead_code)]
     mmap: memmap::Mmap,
-    cache: block_reader::DMAThenReadBlockManager<'static, block_reader::ReaderBlock<ZlibRead<'static>>, ZlibFactory>,
+    cache: block_reader::DMAThenReadBlockManager<'static, block_reader::CachingReaderBlock<ZlibRead<'static>>, ZlibFactory>,
     meta: MetaV1_0,
     data_start: u64,
     index: BTreeMap<String, u64>,
 }
 
 impl ZlibReaderV1_0 {
-    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache_size: usize) -> Result<Self> {
+    fn new(meta: MetaV1_0, data_start: u64, mut file: File, cache: ReadCache) -> Result<Self> {
         let index_start = data_start + (meta.data_len as u64);
 
         file.seek(SeekFrom::Start(index_start))?;
@@ -227,7 +227,8 @@ impl ZlibReaderV1_0 {
         Ok(ZlibReaderV1_0 {
             mmap: mmap,
             cache: block_reader::DMAThenReadBlockManager::new(
-                mmap_buf, ZlibFactory{}, cache_size
+                // TODO: replace 32 with cache
+                mmap_buf, ZlibFactory{}, 32
             ),
             data_start: data_start,
             meta: meta,
@@ -254,13 +255,21 @@ pub struct SSTableReader {
     inner: Box<dyn InnerReader>,
 }
 
+#[derive(Copy,Clone,Debug)]
+pub enum ReadCache {
+    None,
+    Blocks(usize),
+    Unbounded,
+}
+
+#[derive(Copy,Clone,Debug)]
 pub struct ReadOptions {
-    cache_size: usize,
+    cache: ReadCache,
 }
 
 impl Default for ReadOptions {
     fn default() -> Self {
-        Self{cache_size: 32}
+        Self{cache: ReadCache::Blocks(32)}
     }
 }
 
@@ -277,8 +286,8 @@ impl SSTableReader {
             MetaData::V1_0(meta) => meta,
         };
         let inner: Box<dyn InnerReader> = match meta.compression {
-            Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file, opts.cache_size)?),
-            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, opts.cache_size)?),
+            Compression::None => Box::new(MmapSSTableReaderV1_0::new(meta, data_start, file, opts.cache)?),
+            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, opts.cache)?),
         };
         Ok(SSTableReader { inner: inner })
     }

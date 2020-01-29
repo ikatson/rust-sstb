@@ -12,6 +12,7 @@ use poswriter::PosWriter;
 
 use compress_ctx_writer::*;
 
+/// SSTableWriterV1 writes SSTables to disk.
 pub struct SSTableWriterV1 {
     file: Box<dyn CompressionContextWriter<BufWriter<File>>>,
     meta: MetaV1_0,
@@ -22,7 +23,12 @@ pub struct SSTableWriterV1 {
 }
 
 impl SSTableWriterV1 {
-    pub fn new<P: AsRef<Path>>(path: P, options: WriteOptions) -> Result<Self> {
+    /// Make a new SSTable writer with default options.
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::new_with_options(path, WriteOptions::default())
+    }
+    /// Make a new SSTable writer with explicit options.
+    pub fn new_with_options<P: AsRef<Path>>(path: P, options: WriteOptions) -> Result<Self> {
         let file = File::create(path)?;
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write(MAGIC)?;
@@ -52,7 +58,8 @@ impl SSTableWriterV1 {
             sparse_index: BTreeMap::new(),
         })
     }
-    pub fn write_index(self) -> Result<()> {
+    /// Write all the metadata to the sstable, and flush it.
+    pub fn finish(self) -> Result<()> {
         match self {
             SSTableWriterV1 {
                 file,
@@ -101,6 +108,6 @@ impl RawSSTableWriter for SSTableWriterV1 {
     }
 
     fn close(self) -> Result<()> {
-        self.write_index()
+        self.finish()
     }
 }
