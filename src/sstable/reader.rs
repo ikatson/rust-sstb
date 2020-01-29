@@ -125,7 +125,7 @@ impl MmapSSTableReaderV1_0 {
         let index_start = data_start + (meta.data_len as u64);
 
         let mut index_data = &mmap[(index_start as usize)..];
-        if index_data.len() != meta.index_len {
+        if index_data.len() as u64 != meta.index_len {
             return Err(Error::InvalidData("invalid index length"));
         }
 

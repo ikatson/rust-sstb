@@ -16,10 +16,10 @@ use compress_ctx_writer::*;
 pub struct SSTableWriterV1 {
     file: Box<dyn CompressionContextWriter<BufWriter<File>>>,
     meta: MetaV1_0,
-    meta_start: usize,
-    data_start: usize,
+    meta_start: u64,
+    data_start: u64,
     flush_every: usize,
-    sparse_index: BTreeMap<String, usize>,
+    sparse_index: Vec<(String, u64)>,
 }
 
 impl SSTableWriterV1 {
@@ -35,14 +35,14 @@ impl SSTableWriterV1 {
 
         bincode::serialize_into(&mut writer, &VERSION_10)?;
 
-        let meta_start = writer.current_offset();
+        let meta_start = writer.current_offset() as u64;
 
         let mut meta = MetaV1_0::default();
         meta.compression = options.compression;
 
         bincode::serialize_into(&mut writer, &meta)?;
 
-        let data_start = writer.current_offset();
+        let data_start = writer.current_offset() as u64;
 
         let file = match options.compression {
             Compression::None => Box::new(UncompressedWriter::new(writer)) as Box<_>,
@@ -55,7 +55,7 @@ impl SSTableWriterV1 {
             meta_start: meta_start,
             data_start: data_start,
             flush_every: options.flush_every,
-            sparse_index: BTreeMap::new(),
+            sparse_index: Vec::new(),
         })
     }
     /// Write all the metadata to the sstable, and flush it.
@@ -78,8 +78,8 @@ impl SSTableWriterV1 {
                 }
                 let index_len = writer.reset_compression_context()? - index_start;
                 meta.finished = true;
-                meta.index_len = index_len;
-                meta.data_len = index_start - data_start;
+                meta.index_len = index_len as u64;
+                meta.data_len = index_start as u64 - data_start;
                 let mut writer = writer.into_inner()?.into_inner();
                 writer.seek(SeekFrom::Start(meta_start as u64))?;
                 bincode::serialize_into(&mut writer, &meta)?;
@@ -97,7 +97,7 @@ impl RawSSTableWriter for SSTableWriterV1 {
         let approx_msg_len = key.len() + 5 + value.len();
         if self.file.written_bytes_size_hint()? + approx_msg_len >= self.flush_every || self.meta.items == 0 {
             let offset = self.file.reset_compression_context()?;
-            self.sparse_index.insert(key.to_owned(), offset);
+            self.sparse_index.push((key.to_owned(), offset as u64));
         }
         self.file.write_all(key.as_bytes())?;
         self.file.write_all(b"\0")?;

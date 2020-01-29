@@ -75,9 +75,9 @@ struct Length(u64);
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 struct MetaV1_0 {
-    data_len: usize,
-    index_len: usize,
-    items: usize,
+    data_len: u64,
+    index_len: u64,
+    items: u64,
     compression: Compression,
     // updating this field is done as the last step.
     // it's presence indicates that the file is good.
