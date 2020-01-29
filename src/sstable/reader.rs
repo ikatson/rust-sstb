@@ -77,11 +77,6 @@ fn read_metadata(file: &mut File) -> Result<MetaResult> {
     })
 }
 
-enum BlockCacheTypeForMmapSSTableReaderV1_0 {
-    Caching(block_reader::CachingDMABlockManager<'static>),
-    NotCaching(block_reader::DMABlockManager<'static>),
-}
-
 struct MmapSSTableReaderV1_0 {
     #[allow(dead_code)]
     mmap: memmap::Mmap,
@@ -89,9 +84,7 @@ struct MmapSSTableReaderV1_0 {
     // it's not &'static in reality, but it's bound to mmap's lifetime.
     // It will NOT work with compression.
     index: BTreeMap<&'static str, u64>,
-    // cache: block_reader::CachingDMABlockManager<'static>,
-    cache: BlockCacheTypeForMmapSSTableReaderV1_0,
-    new_cache: Box<dyn BlockManager>
+    cache: Box<dyn BlockManager>
 }
 
 fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &str, end_default: T) -> Option<(T, T)>
@@ -155,17 +148,11 @@ impl MmapSSTableReaderV1_0 {
         let mmap_buf = &mmap[..];
         let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
 
-        use BlockCacheTypeForMmapSSTableReaderV1_0::*;
-
         Ok(MmapSSTableReaderV1_0 {
             mmap: mmap,
             index_start: index_start,
             index: index,
             cache: match cache {
-                Some(cache) => Caching(block_reader::CachingDMABlockManager::new(mmap_buf, cache)),
-                None => NotCaching(block_reader::DMABlockManager::new(mmap_buf))
-            },
-            new_cache: match cache {
                 Some(cache) => Box::new(block_reader::CachingDMABlockManager::new(mmap_buf, cache)),
                 None => Box::new(block_reader::DMABlockManager::new(mmap_buf))
             }
@@ -180,12 +167,7 @@ impl InnerReader for MmapSSTableReaderV1_0 {
             None => return Ok(None)
         };
 
-        use BlockCacheTypeForMmapSSTableReaderV1_0::*;
-        let block: &mut dyn Block = match &mut self.cache {
-            Caching(bm) => bm.get_block(offset, right_bound)?,
-            NotCaching(bm) => bm.get_block(offset, right_bound)?
-        };
-
+        let block = self.cache.get_block(offset, right_bound)?;
         let found = block.find_key(key)?;
         Ok(found.map(|v| GetResult::Ref(v)))
     }
@@ -203,15 +185,10 @@ impl<'r> block_reader::ReaderFactory<'r, ZlibRead<'r>> for ZlibFactory {
     }
 }
 
-enum InnerCacheForZlibReaderV1_0 {
-    Caching(block_reader::CachingDMAThenReadBlockManager<'static, block_reader::CachingReaderBlock<ZlibRead<'static>>, ZlibFactory>),
-    NotCaching(block_reader::DMAThenReadBlockManager<'static, block_reader::OneTimeUseReaderBlock<ZlibRead<'static>>, ZlibFactory>),
-}
-
 struct ZlibReaderV1_0 {
     #[allow(dead_code)]
     mmap: memmap::Mmap,
-    cache: InnerCacheForZlibReaderV1_0,
+    cache: Box<dyn BlockManager>,
     meta: MetaV1_0,
     data_start: u64,
     index: BTreeMap<String, u64>,
@@ -251,15 +228,13 @@ impl ZlibReaderV1_0 {
         let mmap_buf = &mmap[..];
         let mmap_buf: &'static [u8] = unsafe {&* (mmap_buf as *const _)};
 
-        use InnerCacheForZlibReaderV1_0::*;
-
         let zlib_factory = ZlibFactory{};
 
         Ok(ZlibReaderV1_0 {
             mmap: mmap,
             cache: match cache {
-                Some(cache) => Caching(block_reader::CachingDMAThenReadBlockManager::new(mmap_buf, zlib_factory, cache)),
-                None => NotCaching(block_reader::DMAThenReadBlockManager::new(mmap_buf, zlib_factory))
+                Some(cache) => Box::new(block_reader::CachingDMAThenReadBlockManager::new(mmap_buf, zlib_factory, cache)),
+                None => Box::new(block_reader::DMAThenReadBlockManager::new(mmap_buf, zlib_factory))
             },
             data_start: data_start,
             meta: meta,
@@ -276,11 +251,7 @@ impl InnerReader for ZlibReaderV1_0 {
             None => return Ok(None)
         };
 
-        use InnerCacheForZlibReaderV1_0::*;
-        let block: &mut dyn Block = match &mut self.cache {
-            Caching(bm) => bm.get_block(offset, right_bound)?,
-            NotCaching(bm) => bm.get_block(offset, right_bound)?,
-        };
+        let block = self.cache.get_block(offset, right_bound)?;
         let found = block.find_key(key)?;
         Ok(found.map(|v| GetResult::Ref(v)))
     }
