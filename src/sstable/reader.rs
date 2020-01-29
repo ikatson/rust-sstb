@@ -91,6 +91,7 @@ struct MmapSSTableReaderV1_0 {
     index: BTreeMap<&'static str, u64>,
     // cache: block_reader::CachingDMABlockManager<'static>,
     cache: BlockCacheTypeForMmapSSTableReaderV1_0,
+    new_cache: Box<dyn BlockManager>
 }
 
 fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &str, end_default: T) -> Option<(T, T)>
@@ -163,6 +164,10 @@ impl MmapSSTableReaderV1_0 {
             cache: match cache {
                 Some(cache) => Caching(block_reader::CachingDMABlockManager::new(mmap_buf, cache)),
                 None => NotCaching(block_reader::DMABlockManager::new(mmap_buf))
+            },
+            new_cache: match cache {
+                Some(cache) => Box::new(block_reader::CachingDMABlockManager::new(mmap_buf, cache)),
+                None => Box::new(block_reader::DMABlockManager::new(mmap_buf))
             }
         })
     }

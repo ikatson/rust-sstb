@@ -9,8 +9,8 @@ pub trait Block {
     fn find_key<'a, 'b>(&'a mut self, key: &'b str) -> Result<Option<&'a [u8]>>;
 }
 
-pub trait BlockManager<B: Block> {
-    fn get_block<'a, 'b>(&'a mut self, start: u64, end: u64) -> Result<&'a mut B>;
+pub trait BlockManager {
+    fn get_block<'a, 'b>(&'a mut self, start: u64, end: u64) -> Result<&'a mut dyn Block>;
 }
 
 pub struct CachingReferenceBlock<'a> {
@@ -249,8 +249,8 @@ impl<'a, B: Block> CachingDMABlockManager<'a, B> {
     }
 }
 
-impl<'r> BlockManager<CachingReferenceBlock<'r>> for CachingDMABlockManager<'r, CachingReferenceBlock<'r>> {
-    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut CachingReferenceBlock<'r>> {
+impl<'r> BlockManager for CachingDMABlockManager<'r, CachingReferenceBlock<'r>> {
+    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut dyn Block> {
         match self.block_cache.get_mut(&start) {
                 Some(block) => Ok(unsafe {&mut *(block as *mut _)}),
                 None => {
@@ -281,8 +281,8 @@ impl<'a, B: Block> DMABlockManager<'a, B> {
     }
 }
 
-impl<'r> BlockManager<ReferenceBlock<'r>> for DMABlockManager<'r, ReferenceBlock<'r>> {
-    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut ReferenceBlock<'r>> {
+impl<'r> BlockManager for DMABlockManager<'r, ReferenceBlock<'r>> {
+    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut dyn Block> {
         let block = ReferenceBlock{
             buf: &self.buf[start as usize..end as usize],
         };
@@ -317,11 +317,11 @@ impl<'a, R, F> CachingDMAThenReadBlockManager<'a, CachingReaderBlock<R>, F>
     }
 }
 
-impl<'r, R, F> BlockManager<CachingReaderBlock<R>> for CachingDMAThenReadBlockManager<'r, CachingReaderBlock<R>, F>
+impl<'r, R, F> BlockManager for CachingDMAThenReadBlockManager<'r, CachingReaderBlock<R>, F>
     where R: BufRead + 'r,
           F: ReaderFactory<'r, R>
 {
-    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut CachingReaderBlock<R>> {
+    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut dyn Block> {
         match self.block_cache.get_mut(&start) {
             Some(block) => Ok(unsafe {&mut *(block as *mut _)}),
             None => {
@@ -357,11 +357,11 @@ impl<'a, R, F> DMAThenReadBlockManager<'a, OneTimeUseReaderBlock<R>, F>
     }
 }
 
-impl<'r, R, F> BlockManager<OneTimeUseReaderBlock<R>> for DMAThenReadBlockManager<'r, OneTimeUseReaderBlock<R>, F>
+impl<'r, R, F> BlockManager for DMAThenReadBlockManager<'r, OneTimeUseReaderBlock<R>, F>
     where R: BufRead + 'r,
           F: ReaderFactory<'r, R>
 {
-    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut OneTimeUseReaderBlock<R>> {
+    fn get_block<'a>(&'a mut self, start: u64, end: u64) -> Result<&'a mut dyn Block> {
         self.last_block.take();
         Ok(self.last_block.get_or_insert(OneTimeUseReaderBlock::new(
             self.factory.make_reader(&self.buf[start as usize..end as usize])
