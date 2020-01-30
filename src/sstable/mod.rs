@@ -34,13 +34,17 @@ use byteorder::{LittleEndian, ByteOrder};
 
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
-type KEY_LENGTH = u32;
+type KEY_LENGTH = u16;
+
+const KEY_LENGTH_MAX: usize = core::u16::MAX as usize;
+const VALUE_LENGTH_MAX: usize = core::u32::MAX as usize;
+
 type VALUE_LENGTH = u32;
 type OFFSET_LENGTH = u64;
 const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KEY_LENGTH>();
 const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<VALUE_LENGTH>();
-const KEY_LENGTH_MAX: usize = core::u32::MAX as usize;
-const VALUE_LENGTH_MAX: usize = core::u32::MAX as usize;
+
+
 const OFFSET_SIZE: usize = core::mem::size_of::<OFFSET_LENGTH>();
 
 mod block_reader;
@@ -129,7 +133,7 @@ impl KVLength {
             return Err(INVALID_DATA)
         }
         return Ok(Self{
-            key_length: LittleEndian::read_u32(buf),
+            key_length: LittleEndian::read_u16(buf),
             value_length: LittleEndian::read_u32(&buf[KEY_LENGTH_SIZE..]),
         })
     }
@@ -320,14 +324,14 @@ mod tests {
     fn test_large_mmap_file_write_then_read() {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::None;
-        let filename = "/home/igor/sstable_big";
+        let filename = "/tmp/sstable_big";
         test_large_file_with_options(opts, filename, 800_000, true);
     }
 
     #[test]
     #[ignore]
     fn test_large_mmap_file_read() {
-        let filename = "/home/igor/sstable_big";
+        let filename = "/tmp/sstable_big";
         test_large_file_with_options(WriteOptions::default(), filename, 800_000, false);
     }
 
