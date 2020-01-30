@@ -30,12 +30,18 @@ use std::path::Path;
 use bincode;
 use memmap;
 use serde::{Deserialize, Serialize};
+use byteorder::{LittleEndian, ByteOrder};
 
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
-const U32_SIZE: usize = core::mem::size_of::<u32>();
-const U32_MAX: usize = core::u32::MAX as usize;
-const U64_SIZE: usize = core::mem::size_of::<u64>();
+type KEY_LENGTH = u32;
+type VALUE_LENGTH = u32;
+type OFFSET_LENGTH = u64;
+const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KEY_LENGTH>();
+const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<VALUE_LENGTH>();
+const KEY_LENGTH_MAX: usize = core::u32::MAX as usize;
+const VALUE_LENGTH_MAX: usize = core::u32::MAX as usize;
+const OFFSET_SIZE: usize = core::mem::size_of::<OFFSET_LENGTH>();
 
 mod block_reader;
 mod compress_ctx_writer;
@@ -98,25 +104,34 @@ fn deserialize_from_eof_is_ok<T: serde::de::DeserializeOwned, R: Read>(
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct KVLength {
-    key_length: u32,
-    value_length: u32,
+    key_length: KEY_LENGTH,
+    value_length: VALUE_LENGTH,
 }
 
 impl KVLength {
     fn new(k: usize, v: usize) -> Result<Self> {
-        if k > U32_MAX {
+        if k > KEY_LENGTH_MAX {
             return Err(Error::KeyTooLong(k));
         }
-        if v > U32_MAX {
+        if v > VALUE_LENGTH_MAX {
             return Err(Error::ValueTooLong(v));
         }
         Ok(Self {
-            key_length: k as u32,
-            value_length: v as u32,
+            key_length: k as KEY_LENGTH,
+            value_length: v as VALUE_LENGTH,
         })
     }
     const fn encoded_size() -> usize {
-        U32_SIZE + U32_SIZE
+        KEY_LENGTH_SIZE + VALUE_LENGTH_SIZE
+    }
+    fn deserialize(buf: &[u8]) -> Result<Self> {
+        if buf.len() < Self::encoded_size() {
+            return Err(INVALID_DATA)
+        }
+        return Ok(Self{
+            key_length: LittleEndian::read_u32(buf),
+            value_length: LittleEndian::read_u32(&buf[KEY_LENGTH_SIZE..]),
+        })
     }
     fn deserialize_from<R: Read>(r: R) -> Result<Self> {
         Ok(bincode::deserialize_from(r)?)
@@ -131,22 +146,22 @@ impl KVLength {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct KVOffset {
-    key_length: u32,
-    offset: u64,
+    key_length: KEY_LENGTH,
+    offset: OFFSET_LENGTH,
 }
 
 impl KVOffset {
-    fn new(k: usize, offset: u64) -> Result<Self> {
-        if k > U32_MAX {
+    fn new(k: usize, offset: OFFSET_LENGTH) -> Result<Self> {
+        if k > KEY_LENGTH_MAX {
             return Err(Error::KeyTooLong(k));
         }
         Ok(Self {
-            key_length: k as u32,
+            key_length: k as KEY_LENGTH,
             offset: offset,
         })
     }
     const fn encoded_size() -> usize {
-        return U32_SIZE + U64_SIZE
+        return KEY_LENGTH_SIZE + OFFSET_SIZE
     }
     fn deserialize_from<R: Read>(r: R) -> Result<Self> {
         Ok(bincode::deserialize_from(r)?)
@@ -278,17 +293,19 @@ mod tests {
         opts: WriteOptions,
         filename: &str,
         values: usize,
+        write_first: bool,
     ) {
-        let mut writer = writer::SSTableWriterV1::new_with_options(filename, opts).unwrap();
-
-        let buf = [0; 1024];
-
         let mut iter = SortedStringIterator::new(10, values);
-        while let Some(key) = iter.next() {
-            writer.set(key.as_bytes(), &buf).unwrap();
-        }
+        if write_first {
+            let mut writer = writer::SSTableWriterV1::new_with_options(filename, opts).unwrap();
+            let buf = [0; 1024];
 
-        writer.finish().unwrap();
+            while let Some(key) = iter.next() {
+                writer.set(key.as_bytes(), &buf).unwrap();
+            }
+
+            writer.finish().unwrap();
+        }
 
         let read_opts = reader::ReadOptions::default();
         let mut reader = reader::SSTableReader::new_with_options(filename, &read_opts).unwrap();
@@ -300,18 +317,25 @@ mod tests {
     }
 
     #[test]
-    fn test_large_mmap_file() {
+    fn test_large_mmap_file_write_then_read() {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::None;
-        let filename = "/tmp/sstable_big";
-        test_large_file_with_options(opts, filename, 1_000_000);
+        let filename = "/home/igor/sstable_big";
+        test_large_file_with_options(opts, filename, 800_000, true);
     }
 
     #[test]
-    fn test_large_zlib_file() {
+    #[ignore]
+    fn test_large_mmap_file_read() {
+        let filename = "/home/igor/sstable_big";
+        test_large_file_with_options(WriteOptions::default(), filename, 800_000, false);
+    }
+
+    #[test]
+    fn test_large_zlib_file_write_then_read() {
         let mut opts = WriteOptions::default();
         opts.compression = Compression::Zlib;
         let filename = "/tmp/sstable_big_zlib";
-        test_large_file_with_options(opts, filename, 1_000_000);
+        test_large_file_with_options(opts, filename, 500_000, true);
     }
 }
