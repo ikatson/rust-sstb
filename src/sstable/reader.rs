@@ -304,6 +304,7 @@ impl SSTableReader {
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };
+        dbg!(&meta);
         let inner: Box<dyn InnerReader> = match meta.compression {
             Compression::None => Box::new(MmapSSTableReaderV1_0::new(
                 meta, data_start, file, opts.cache,

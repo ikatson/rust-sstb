@@ -52,6 +52,7 @@ mod compress_ctx_writer;
 pub mod error;
 mod posreader;
 mod poswriter;
+mod v2_reader;
 
 pub mod reader;
 pub mod writer;
