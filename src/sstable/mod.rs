@@ -57,13 +57,15 @@ mod v2_reader;
 pub mod reader;
 pub mod writer;
 
-#[cfg(test)]
-mod sorted_string_iterator;
+pub use reader::ReadOptions;
+pub use reader::ReadCache;
+pub use reader::SSTableReader;
+
 use error::{Error, INVALID_DATA};
 
 use std::io::{Read, Write};
 
-type Result<T> = core::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Serialize, Default, Deserialize, Debug, PartialEq, Eq)]
 pub struct Version {
@@ -201,10 +203,48 @@ pub trait RawSSTableWriter {
     fn close(self) -> Result<()>;
 }
 
+pub struct WriteOptionsBuilder {
+    pub compression: Compression,
+    pub flush_every: usize,
+}
+
+impl WriteOptionsBuilder {
+    pub fn new() -> Self {
+        let default = WriteOptions::default();
+        Self{
+            compression: default.compression,
+            flush_every: default.flush_every,
+        }
+    }
+    pub fn compression(&mut self, compression: Compression) -> &mut Self {
+        self.compression = compression;
+        self
+    }
+    pub fn flush_every(&mut self, flush_every: usize) -> &mut Self {
+        self.flush_every = flush_every;
+        self
+    }
+    pub fn build(&self) -> WriteOptions {
+        WriteOptions{
+            compression: self.compression,
+            flush_every: self.flush_every,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WriteOptions {
     pub compression: Compression,
     pub flush_every: usize,
+}
+
+impl WriteOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn builder() -> WriteOptionsBuilder {
+        WriteOptionsBuilder::new()
+    }
 }
 
 impl Default for WriteOptions {
@@ -238,7 +278,6 @@ pub fn write_btree_map<K: AsRef<[u8]>, V: AsRef<[u8]>, P: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sorted_string_iterator::SortedStringIterator;
     use std::collections::BTreeMap;
 
     fn get_current_pid_rss() -> usize {
@@ -292,55 +331,5 @@ mod tests {
         let mut options = WriteOptions::default();
         options.compression = Compression::Zlib;
         test_basic_sanity(options, "/tmp/sstable_zlib");
-    }
-
-    fn test_large_file_with_options(
-        opts: WriteOptions,
-        filename: &str,
-        values: usize,
-        write_first: bool,
-    ) {
-        let mut iter = SortedStringIterator::new(10, values);
-        if write_first {
-            let mut writer = writer::SSTableWriterV1::new_with_options(filename, opts).unwrap();
-            let buf = [0; 1024];
-
-            while let Some(key) = iter.next() {
-                writer.set(key.as_bytes(), &buf).unwrap();
-            }
-
-            writer.finish().unwrap();
-        }
-
-        let read_opts = reader::ReadOptions::default();
-        let mut reader = reader::SSTableReader::new_with_options(filename, &read_opts).unwrap();
-        iter.reset();
-        while let Some(key) = iter.next() {
-            let val = reader.get(key.as_bytes()).unwrap().expect(key);
-            assert_eq!(val.as_bytes().len(), 1024);
-        }
-    }
-
-    #[test]
-    fn test_large_mmap_file_write_then_read() {
-        let mut opts = WriteOptions::default();
-        opts.compression = Compression::None;
-        let filename = "/tmp/sstable_big";
-        test_large_file_with_options(opts, filename, 800_000, true);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_large_mmap_file_read() {
-        let filename = "/tmp/sstable_big";
-        test_large_file_with_options(WriteOptions::default(), filename, 800_000, false);
-    }
-
-    #[test]
-    fn test_large_zlib_file_write_then_read() {
-        let mut opts = WriteOptions::default();
-        opts.compression = Compression::Zlib;
-        let filename = "/tmp/sstable_big_zlib";
-        test_large_file_with_options(opts, filename, 500_000, true);
     }
 }

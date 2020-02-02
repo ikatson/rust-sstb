@@ -13,3 +13,12 @@ flate2 = "^1"
 lru = "^0.4"
 byteorder = "^1"
 bytes = "*"
+
+[dev-dependencies]
+criterion = "^0.3"
+chashmap = "*"
+rand = {version = "^0.7", features=["small_rng"]}
+
+[[bench]]
+name = "sstable_implementations"
+harness = false

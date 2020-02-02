@@ -2,7 +2,7 @@ use super::*;
 
 use lru::LruCache;
 use std::collections::hash_map::{Entry, HashMap};
-
+use std::cmp::{Ord, Ordering};
 use std::io::BufRead;
 
 pub trait Block {
@@ -56,12 +56,14 @@ impl<'r> Block for CachingReferenceBlock<'r> {
                     self.cursor = cursor;
                     self.last_read_key.replace(start_key);
 
-                    if key == start_key {
-                        return Ok(Some(value));
-                    }
-
-                    if start_key > key {
-                        return Ok(None);
+                    match start_key.cmp(key) {
+                        Ordering::Equal => {
+                            return Ok(Some(value));
+                        },
+                        Ordering::Greater => {
+                            return Ok(None)
+                        }
+                        Ordering::Less => continue
                     }
                 }
                 return Ok(None);
@@ -90,7 +92,7 @@ impl<'r> Block for ReferenceBlock<'r> {
         while offset < self.buf.len() {
             let kvlength = bincode::deserialize::<KVLength>(&self.buf)?;
             let (start_key, cursor) = {
-                let key_start = kvlen_encoded_size;
+                let key_start = offset + kvlen_encoded_size;
                 let key_end = key_start + kvlength.key_length as usize;
                 (buf_get!(key_start..key_end), key_end)
             };
@@ -102,12 +104,14 @@ impl<'r> Block for ReferenceBlock<'r> {
             };
             offset = cursor;
 
-            if key == start_key {
-                return Ok(Some(value));
-            }
-
-            if start_key > key {
-                return Ok(None);
+            match start_key.cmp(key) {
+                Ordering::Equal => {
+                    return Ok(Some(value));
+                },
+                Ordering::Greater => {
+                    return Ok(None)
+                }
+                Ordering::Less => continue
             }
         }
         return Ok(None);

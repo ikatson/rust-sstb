@@ -1,7 +1,7 @@
 const FIRST: u8 = b'a';
 const LAST: u8 = b'z';
 
-pub struct SortedStringIterator {
+pub struct SortedBytesIterator {
     buf: Vec<u8>,
     // points to the element being made larger.
     current: usize,
@@ -11,7 +11,13 @@ pub struct SortedStringIterator {
     limit: usize,
 }
 
-impl SortedStringIterator {
+impl Clone for SortedBytesIterator {
+    fn clone(&self) -> Self {
+        Self::new_first_last(self.buf.len(), self.first, self.last, self.limit)
+    }
+}
+
+impl SortedBytesIterator {
     pub fn new(length: usize, limit: usize) -> Self {
         Self::new_first_last(length, FIRST, LAST, limit)
     }
@@ -36,7 +42,7 @@ impl SortedStringIterator {
         }
     }
 
-    pub fn next(&mut self) -> Option<&str> {
+    pub fn next(&mut self) -> Option<&[u8]> {
         let buflen = self.buf.len();
         if self.limit > 0 && self.counter == self.limit {
             return None;
@@ -62,7 +68,7 @@ impl SortedStringIterator {
             }
         }
         self.counter += 1;
-        return Some(unsafe { std::str::from_utf8_unchecked(&self.buf) });
+        return Some(&self.buf);
     }
 }
 
@@ -71,35 +77,35 @@ mod tests {
     use super::*;
     #[test]
     fn test_sequence() {
-        let mut iter = SortedStringIterator::new_first_last(3, b'a', b'c', 0);
+        let mut iter = SortedBytesIterator::new_first_last(3, b'a', b'c', 0);
 
-        assert_eq!(iter.next(), Some("aaa"));
-        assert_eq!(iter.next(), Some("aab"));
-        assert_eq!(iter.next(), Some("aac"));
-        assert_eq!(iter.next(), Some("aba"));
-        assert_eq!(iter.next(), Some("abb"));
-        assert_eq!(iter.next(), Some("abc"));
-        assert_eq!(iter.next(), Some("aca"));
-        assert_eq!(iter.next(), Some("acb"));
-        assert_eq!(iter.next(), Some("acc"));
-        assert_eq!(iter.next(), Some("baa"));
-        assert_eq!(iter.next(), Some("bab"));
-        assert_eq!(iter.next(), Some("bac"));
-        assert_eq!(iter.next(), Some("bba"));
-        assert_eq!(iter.next(), Some("bbb"));
-        assert_eq!(iter.next(), Some("bbc"));
-        assert_eq!(iter.next(), Some("bca"));
-        assert_eq!(iter.next(), Some("bcb"));
-        assert_eq!(iter.next(), Some("bcc"));
-        assert_eq!(iter.next(), Some("caa"));
-        assert_eq!(iter.next(), Some("cab"));
-        assert_eq!(iter.next(), Some("cac"));
-        assert_eq!(iter.next(), Some("cba"));
-        assert_eq!(iter.next(), Some("cbb"));
-        assert_eq!(iter.next(), Some("cbc"));
-        assert_eq!(iter.next(), Some("cca"));
-        assert_eq!(iter.next(), Some("ccb"));
-        assert_eq!(iter.next(), Some("ccc"));
+        assert_eq!(iter.next(), Some(b"aaa" as &[u8]));
+        assert_eq!(iter.next(), Some(b"aab" as &[u8]));
+        assert_eq!(iter.next(), Some(b"aac" as &[u8]));
+        assert_eq!(iter.next(), Some(b"aba" as &[u8]));
+        assert_eq!(iter.next(), Some(b"abb" as &[u8]));
+        assert_eq!(iter.next(), Some(b"abc" as &[u8]));
+        assert_eq!(iter.next(), Some(b"aca" as &[u8]));
+        assert_eq!(iter.next(), Some(b"acb" as &[u8]));
+        assert_eq!(iter.next(), Some(b"acc" as &[u8]));
+        assert_eq!(iter.next(), Some(b"baa" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bab" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bac" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bba" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bbb" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bbc" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bca" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bcb" as &[u8]));
+        assert_eq!(iter.next(), Some(b"bcc" as &[u8]));
+        assert_eq!(iter.next(), Some(b"caa" as &[u8]));
+        assert_eq!(iter.next(), Some(b"cab" as &[u8]));
+        assert_eq!(iter.next(), Some(b"cac" as &[u8]));
+        assert_eq!(iter.next(), Some(b"cba" as &[u8]));
+        assert_eq!(iter.next(), Some(b"cbb" as &[u8]));
+        assert_eq!(iter.next(), Some(b"cbc" as &[u8]));
+        assert_eq!(iter.next(), Some(b"cca" as &[u8]));
+        assert_eq!(iter.next(), Some(b"ccb" as &[u8]));
+        assert_eq!(iter.next(), Some(b"ccc" as &[u8]));
 
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);

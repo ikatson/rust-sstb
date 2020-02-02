@@ -29,6 +29,13 @@ impl<'a> GetResult<'a> {
             Owned(b) => b,
         }
     }
+    pub fn len(&self) -> usize {
+        use GetResult::*;
+        match self {
+            Ref(b) => b.len(),
+            Owned(b) => b.len(),
+        }
+    }
 }
 
 impl<'a> AsRef<[u8]> for GetResult<'a> {
@@ -103,7 +110,7 @@ where
 
     let end = {
         let mut iter_right = map.range::<[u8], _>((Bound::Excluded(key), Bound::Unbounded));
-        let closest_right = iter_right.next_back();
+        let closest_right = iter_right.next();
         match closest_right {
             Some((_, offset)) => *offset,
             None => end_default,
@@ -281,7 +288,7 @@ pub enum ReadCache {
 
 #[derive(Copy, Clone, Debug)]
 pub struct ReadOptions {
-    cache: Option<ReadCache>,
+    pub cache: Option<ReadCache>,
 }
 
 impl Default for ReadOptions {
@@ -304,7 +311,6 @@ impl SSTableReader {
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };
-        dbg!(&meta);
         let inner: Box<dyn InnerReader> = match meta.compression {
             Compression::None => Box::new(MmapSSTableReaderV1_0::new(
                 meta, data_start, file, opts.cache,
