@@ -30,29 +30,27 @@ use std::path::Path;
 use bincode;
 use memmap;
 use serde::{Deserialize, Serialize};
-use byteorder::{LittleEndian, ByteOrder};
 
 const MAGIC: &[u8] = b"\x80LSM";
 const VERSION_10: Version = Version { major: 1, minor: 0 };
-type KEY_LENGTH = u16;
+type KeyLength = u16;
 
 const KEY_LENGTH_MAX: usize = core::u16::MAX as usize;
 const VALUE_LENGTH_MAX: usize = core::u32::MAX as usize;
 
-type VALUE_LENGTH = u32;
-type OFFSET_LENGTH = u64;
-const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KEY_LENGTH>();
-const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<VALUE_LENGTH>();
+type ValueLength = u32;
+type OffsetLength = u64;
+const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KeyLength>();
+const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
 
 
-const OFFSET_SIZE: usize = core::mem::size_of::<OFFSET_LENGTH>();
+const OFFSET_SIZE: usize = core::mem::size_of::<OffsetLength>();
 
 mod block_reader;
 mod compress_ctx_writer;
 pub mod error;
 mod posreader;
 mod poswriter;
-mod v2_reader;
 mod page_cache;
 
 pub mod reader;
@@ -112,8 +110,8 @@ fn deserialize_from_eof_is_ok<T: serde::de::DeserializeOwned, R: Read>(
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct KVLength {
-    key_length: KEY_LENGTH,
-    value_length: VALUE_LENGTH,
+    key_length: KeyLength,
+    value_length: ValueLength,
 }
 
 impl KVLength {
@@ -125,27 +123,12 @@ impl KVLength {
             return Err(Error::ValueTooLong(v));
         }
         Ok(Self {
-            key_length: k as KEY_LENGTH,
-            value_length: v as VALUE_LENGTH,
+            key_length: k as KeyLength,
+            value_length: v as ValueLength,
         })
     }
     const fn encoded_size() -> usize {
         KEY_LENGTH_SIZE + VALUE_LENGTH_SIZE
-    }
-    fn deserialize(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::encoded_size() {
-            return Err(INVALID_DATA)
-        }
-        return Ok(Self{
-            key_length: LittleEndian::read_u16(buf),
-            value_length: LittleEndian::read_u32(&buf[KEY_LENGTH_SIZE..]),
-        })
-    }
-    fn deserialize_from<R: Read>(r: R) -> Result<Self> {
-        Ok(bincode::deserialize_from(r)?)
-    }
-    fn deserialize_from_eof_is_ok<R: Read>(mut r: R) -> Result<Option<Self>> {
-        Ok(deserialize_from_eof_is_ok(&mut r)?)
     }
     fn serialize_into<W: Write>(&self, w: W) -> Result<()> {
         Ok(bincode::serialize_into(w, self)?)
@@ -154,25 +137,22 @@ impl KVLength {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct KVOffset {
-    key_length: KEY_LENGTH,
-    offset: OFFSET_LENGTH,
+    key_length: KeyLength,
+    offset: OffsetLength,
 }
 
 impl KVOffset {
-    fn new(k: usize, offset: OFFSET_LENGTH) -> Result<Self> {
+    fn new(k: usize, offset: OffsetLength) -> Result<Self> {
         if k > KEY_LENGTH_MAX {
             return Err(Error::KeyTooLong(k));
         }
         Ok(Self {
-            key_length: k as KEY_LENGTH,
+            key_length: k as KeyLength,
             offset: offset,
         })
     }
     const fn encoded_size() -> usize {
         return KEY_LENGTH_SIZE + OFFSET_SIZE
-    }
-    fn deserialize_from<R: Read>(r: R) -> Result<Self> {
-        Ok(bincode::deserialize_from(r)?)
     }
     fn deserialize_from_eof_is_ok<R: Read>(r: R) -> Result<Option<Self>> {
         Ok(deserialize_from_eof_is_ok(r)?)
