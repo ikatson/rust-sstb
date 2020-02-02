@@ -1,4 +1,3 @@
-use memmap;
 use std::io::{Read, Seek, SeekFrom, Cursor};
 
 use lru::LruCache;
@@ -8,19 +7,20 @@ pub trait PageCache {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]>;
 }
 
-pub struct MmapCache {
-    mmap: memmap::Mmap,
+pub struct StaticBufCache {
+    buf: &'static [u8]
 }
 
-impl MmapCache {
-    pub fn new(map: memmap::Mmap) -> Self {
-        Self{mmap: map}
+impl StaticBufCache {
+    pub fn new(buf: &'static [u8]) -> Self {
+        Self{buf: buf}
     }
 }
 
-impl PageCache for MmapCache {
+impl PageCache for StaticBufCache {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]> {
-        (&self.mmap).get(offset as usize..(offset+length) as usize).ok_or(error::INVALID_DATA)
+        dbg!("StaticBufCache:get_chunk");
+        self.buf.get(offset as usize..(offset+length) as usize).ok_or(error::INVALID_DATA)
     }
 }
 
@@ -102,10 +102,13 @@ impl<PC, U> PageCache for WrappedCache<PC, U>
           PC: PageCache,
 {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]> {
+        dbg!("get_chunk", offset, length);
         match self.cache.get(&offset) {
             Some(bytes) => Ok(unsafe {&*(bytes as &[u8] as *const [u8])}),
             None => {
+                dbg!("inner get_chunk", offset, length);
                 let inner_chunk = self.inner.get_chunk(offset, length)?;
+                dbg!("inner get_chunk done", offset, length);
                 let buf = self.uncompress.uncompress(inner_chunk)?;
                 self.cache.put(offset, buf);
                 Ok(self.cache.get(&offset).unwrap())

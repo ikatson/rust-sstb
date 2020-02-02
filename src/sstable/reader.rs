@@ -400,6 +400,8 @@ impl Default for ReadOptions {
 
 struct InnerReader_Impl_v2 {
     index: Box<dyn Index>,
+    // This is just to hold an mmap reference to be dropped in the end.
+    _mmap: Option<memmap::Mmap>,
     page_cache: Box<dyn page_cache::PageCache>,
     meta: MetaV1_0,
     data_start: u64,
@@ -420,14 +422,19 @@ impl InnerReader_Impl_v2 {
         } else {
             None
         };
+        let mmap_buf = mmap.as_ref().map(|mmap| {
+            let buf = &mmap as &[u8];
+            let buf = buf as *const [u8];
+            let buf: &'static [u8] = unsafe {&* buf};
+            buf
+        });
+
         let index: Box<dyn Index> = match meta.compression {
             Compression::None => {
-                match mmap.as_ref() {
+                match mmap_buf {
                     Some(mmap) => {
-                        let mmap = &mmap as &[u8];
-                        let mmap_buf: &'static [u8] = unsafe { &*(mmap as *const _) };
                         Box::new(MemIndex::from_static_buf(
-                            &mmap_buf[index_start as usize..],
+                            &mmap[index_start as usize..],
                             meta.index_len
                         )?)
                     },
@@ -442,9 +449,9 @@ impl InnerReader_Impl_v2 {
             }
         };
 
-        let pc: Box<dyn page_cache::PageCache> = match mmap {
+        let pc: Box<dyn page_cache::PageCache> = match mmap_buf {
             Some(mmap) => {
-                Box::new(page_cache::MmapCache::new(mmap))
+                Box::new(page_cache::StaticBufCache::new(mmap))
             },
             None => {
                 Box::new(page_cache::ReadCache::new(file, opts.cache.clone().unwrap_or(ReadCache::default())))
@@ -462,6 +469,7 @@ impl InnerReader_Impl_v2 {
         };
 
         return Ok(Self {
+            _mmap: mmap,
             index: index,
             page_cache: uncompressed_cache,
             data_start: data_start,
