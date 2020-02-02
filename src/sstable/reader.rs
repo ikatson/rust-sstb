@@ -272,6 +272,10 @@ impl InnerReader {
                 // the pages anyway.
                 let reader = flate2::read::ZlibDecoder::new(&mut file);
                 Box::new(OwnedIndex::from_reader(reader)?)
+            },
+            Compression::Snappy => {
+                let reader = snap::Reader::new(&mut file);
+                Box::new(OwnedIndex::from_reader(reader)?)
             }
         };
 
@@ -288,6 +292,12 @@ impl InnerReader {
             Compression::None => pc,
             Compression::Zlib => {
                 let dec = page_cache::ZlibUncompress{};
+                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
+                Box::new(wrapped)
+            },
+            Compression::Snappy => {
+                let dec = page_cache::SnappyUncompress{};
                 let cache = opts.cache.clone().unwrap_or(ReadCache::default());
                 let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
                 Box::new(wrapped)

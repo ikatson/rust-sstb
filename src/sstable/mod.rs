@@ -76,6 +76,7 @@ pub struct Version {
 pub enum Compression {
     None,
     Zlib,
+    Snappy,
 }
 
 impl Default for Compression {
@@ -300,6 +301,13 @@ mod tests {
     fn test_compressed_with_zlib_basic_sanity() {
         let mut options = WriteOptions::default();
         options.compression = Compression::Zlib;
+        test_basic_sanity(options, "/tmp/sstable_zlib");
+    }
+
+    #[test]
+    fn test_compressed_with_snappy_basic_sanity() {
+        let mut options = WriteOptions::default();
+        options.compression = Compression::Snappy;
         test_basic_sanity(options, "/tmp/sstable_zlib");
     }
 }

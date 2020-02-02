@@ -43,9 +43,10 @@ impl SSTableWriterV1 {
 
         let data_start = writer.current_offset() as u64;
 
-        let file = match options.compression {
-            Compression::None => Box::new(UncompressedWriter::new(writer)) as Box<_>,
-            Compression::Zlib => Box::new(ZlibWriter::new(writer)) as Box<_>,
+        let file: Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>> = match options.compression {
+            Compression::None => Box::new(UncompressedWriter::new(writer)),
+            Compression::Zlib => Box::new(ZlibWriter::new(writer)),
+            Compression::Snappy => Box::new(SnappyWriter::new(writer))
         };
 
         Ok(Self {

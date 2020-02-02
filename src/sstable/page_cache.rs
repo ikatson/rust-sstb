@@ -89,6 +89,20 @@ impl Uncompress for ZlibUncompress {
     }
 }
 
+pub struct SnappyUncompress {}
+
+impl Uncompress for SnappyUncompress {
+    fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
+        let mut dec = snap::Reader::new(Cursor::new(buf));
+        // TODO: buf.len() here is a bad heuristic. Need the real number, this can be pulled during
+        // compression.
+        let mut buf = Vec::with_capacity(buf.len());
+        dec.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+}
+
+
 impl PageCache for Box<dyn PageCache> {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]> {
         self.as_mut().get_chunk(offset, length)
