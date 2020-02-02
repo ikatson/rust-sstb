@@ -80,49 +80,46 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let make_write_opts = |compression, flush| WriteOptions::builder().compression(compression).flush_every(flush).build();
 
-    for (prefix, write_opts) in vec![
-        ("compress=none,flush=4096", make_write_opts(Compression::None, 4096)),
-        ("compress=none,flush=8192", make_write_opts(Compression::None, 8192)),
-        ("compress=zlib,flush=4096", make_write_opts(Compression::Zlib, 4096)),
-        ("compress=zlib,flush=8192", make_write_opts(Compression::Zlib, 8192)),
+    for (prefix, write_opts, read_opts) in vec![
+        ("mmap,compress=none,flush=4096", make_write_opts(Compression::None, 4096), ReadOptions{cache: None, use_mmap: true}),
+        ("mmap,compress=none,flush=8192", make_write_opts(Compression::None, 8192), ReadOptions{cache: None, use_mmap: true}),
+
+        ("no_mmap,compress=none,flush=4096", make_write_opts(Compression::None, 4096), ReadOptions{cache: None, use_mmap: false}),
+        ("no_mmap,compress=none,flush=8192", make_write_opts(Compression::None, 8192), ReadOptions{cache: None, use_mmap: false}),
+
+        ("mmap,compress=snappy,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
+        ("no_mmap,compress=snappy,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
+
+        ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
+        ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
     ].into_iter() {
         let filename = "/tmp/sstable";
         state.write_sstable(filename, write_opts).unwrap();
 
-        for (middle, read_opts) in [
-            ("nocache", ReadOptions{cache: None}),
-            ("cache=32", ReadOptions{cache: Some(ReadCache::Blocks(32))}),
-            ("cache=unbounded", ReadOptions{cache: Some(ReadCache::Unbounded)}),
-        ].iter() {
-            // this takes forever
-            if write_opts.compression == Compression::Zlib && read_opts.cache.is_none() {
-                continue
-            }
-            c.bench_function(&format!("{} test=open {} items={}", prefix, middle, items), |b| {
-                b.iter(|| {
-                    SSTableReader::new_with_options(filename, &read_opts).unwrap()
-                })
-            });
+        c.bench_function(&format!("{} test=open items={}", prefix, items), |b| {
+            b.iter(|| {
+                SSTableReader::new_with_options(filename, &read_opts).unwrap()
+            })
+        });
 
-            c.bench_function(&format!("{} test=get {} items={}", prefix, middle, items), |b| {
-                b.iter_batched(
-                    || {
-                        SSTableReader::new_with_options(
-                            filename,
-                            &read_opts
-                        ).unwrap()
-                    },
-                    |mut reader| {
+        c.bench_function(&format!("{} test=get items={}", prefix, items), |b| {
+            b.iter_batched(
+                || {
+                    SSTableReader::new_with_options(
+                        filename,
+                        &read_opts
+                    ).unwrap()
+                },
+                |mut reader| {
 
-                        for key in state.get_shuffled_input() {
-                            let value = reader.get(key).unwrap();
-                            assert_eq!(value.map(|b| b.len()), Some(ValueLen));
-                        }
-                    },
-                    BatchSize::LargeInput
-                );
-            });
-        }
+                    for key in state.get_shuffled_input() {
+                        let value = reader.get(key).unwrap();
+                        assert_eq!(value.map(|b| b.len()), Some(ValueLen));
+                    }
+                },
+                BatchSize::LargeInput
+            );
+        });
     }
 }
 
