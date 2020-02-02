@@ -9,6 +9,8 @@ use memmap;
 
 use super::*;
 
+use lru::LruCache;
+
 use block_reader::{Block, BlockManager};
 
 trait InnerReader {
@@ -53,7 +55,7 @@ struct MetaResult {
     offset: usize,
 }
 
-fn read_metadata(file: &mut File) -> Result<MetaResult> {
+fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     file.seek(SeekFrom::Start(0))?;
     let mut reader = posreader::PosReader::new(BufReader::new(file), 0);
     let mut buf = [0; MAGIC.len()];
@@ -73,7 +75,7 @@ fn read_metadata(file: &mut File) -> Result<MetaResult> {
     };
 
     let offset = reader.current_offset();
-    let file = reader.into_inner().into_inner();
+    let mut file = reader.into_inner().into_inner();
     file.seek(SeekFrom::Start(offset as u64))?;
 
     Ok(MetaResult {
@@ -118,6 +120,84 @@ where
     };
     Some((start, end))
 }
+
+trait Index {
+    fn find_bounds(&self, key: &[u8], end_default: u64) -> Option<(u64, u64)>;
+}
+
+struct MemIndex {
+    index: BTreeMap<&'static [u8], u64>
+}
+
+impl MemIndex {
+    fn from_static_buf(buf: &'static [u8], expected_len: u64) -> Result<Self> {
+        // Build the index from mmap here.
+        let mut index = BTreeMap::new();
+        let mut index_data = &buf[..];
+        if index_data.len() as u64 != expected_len {
+            return Err(Error::InvalidData("invalid index length"));
+        }
+
+        let kvoffset_encoded_size = KVOffset::encoded_size();
+
+        while index_data.len() > 0 {
+            let kvoffset = bincode::deserialize::<KVOffset>(
+                index_data
+                    .get(..kvoffset_encoded_size)
+                    .ok_or(INVALID_DATA)?,
+            )?;
+            let key_end = kvoffset_encoded_size + kvoffset.key_length as usize;
+            let key = index_data
+                .get(kvoffset_encoded_size..key_end)
+                .ok_or(INVALID_DATA)?;
+            let key: &'static [u8] = unsafe { &*(key as *const _) };
+            index.insert(key, kvoffset.offset);
+            if index_data.len() == key_end {
+                break
+            }
+            index_data = &index_data[key_end..];
+        }
+
+        Ok(Self{
+            index: index,
+        })
+    }
+}
+
+impl Index for MemIndex {
+    fn find_bounds(&self, key: &[u8], end_default: u64) -> Option<(u64, u64)> {
+        find_bounds(&self.index, key, end_default)
+    }
+}
+
+struct OwnedIndex {
+    index: BTreeMap<Vec<u8>, u64>
+}
+
+impl OwnedIndex {
+    fn from_reader<R: Read>(mut reader: R) -> Result<Self> {
+        let mut index = BTreeMap::new();
+
+        loop {
+            let kvoffset = KVOffset::deserialize_from_eof_is_ok(&mut reader)?;
+            let kvoffset = match kvoffset {
+                Some(kvoffset) => kvoffset,
+                None => break,
+            };
+            let mut key = vec![0; kvoffset.key_length as usize];
+            reader.read_exact(&mut key)?;
+            index.insert(key, kvoffset.offset);
+        }
+        Ok(Self{index: index})
+    }
+}
+
+impl Index for OwnedIndex {
+    fn find_bounds(&self, key: &[u8], end_default: u64) -> Option<(u64, u64)> {
+        find_bounds(&self.index, key, end_default)
+    }
+}
+
 
 impl MmapSSTableReaderV1_0 {
     fn new(
@@ -286,16 +366,121 @@ pub enum ReadCache {
     Unbounded,
 }
 
+impl ReadCache {
+    pub fn lru<K, V>(&self) -> LruCache<K, V>
+        where K: std::cmp::Eq + std::hash::Hash
+     {
+        match self {
+            ReadCache::Blocks(b) => LruCache::new(*b),
+            ReadCache::Unbounded => LruCache::unbounded()
+        }
+    }
+}
+
+impl Default for ReadCache {
+    fn default() -> Self {
+        ReadCache::Blocks(32)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct ReadOptions {
     pub cache: Option<ReadCache>,
+    pub use_mmap: bool
 }
 
 impl Default for ReadOptions {
     fn default() -> Self {
         Self {
-            cache: Some(ReadCache::Blocks(32)),
+            cache: Some(ReadCache::default()),
+            use_mmap: true
         }
+    }
+}
+
+struct InnerReader_Impl_v2 {
+    index: Box<dyn Index>,
+    page_cache: Box<dyn page_cache::PageCache>,
+    meta: MetaV1_0,
+    data_start: u64,
+}
+
+impl InnerReader_Impl_v2 {
+    pub fn new(mut file: File, data_start: u64, meta: MetaResult, opts: &ReadOptions) -> Result<Self> {
+        let meta = match meta.meta {
+            MetaData::V1_0(meta) => meta,
+        };
+
+        let index_start = data_start + (meta.data_len as u64);
+
+        file.seek(SeekFrom::Start(index_start))?;
+
+        let mmap = if opts.use_mmap {
+            Some(unsafe {memmap::Mmap::map(&file)}?)
+        } else {
+            None
+        };
+        let index: Box<dyn Index> = match meta.compression {
+            Compression::None => {
+                match mmap.as_ref() {
+                    Some(mmap) => {
+                        let mmap = &mmap as &[u8];
+                        let mmap_buf: &'static [u8] = unsafe { &*(mmap as *const _) };
+                        Box::new(MemIndex::from_static_buf(
+                            &mmap_buf[index_start as usize..],
+                            meta.index_len
+                        )?)
+                    },
+                    None => Box::new(OwnedIndex::from_reader(&mut file)?)
+                }
+            },
+            Compression::Zlib => {
+                // does not make sense to use mmap for index as we are not going to access
+                // the pages anyway.
+                let reader = flate2::read::ZlibDecoder::new(&mut file);
+                Box::new(OwnedIndex::from_reader(reader)?)
+            }
+        };
+
+        let pc: Box<dyn page_cache::PageCache> = match mmap {
+            Some(mmap) => {
+                Box::new(page_cache::MmapCache::new(mmap))
+            },
+            None => {
+                Box::new(page_cache::ReadCache::new(file, opts.cache.clone().unwrap_or(ReadCache::default())))
+            },
+        };
+
+        let uncompressed_cache: Box<dyn page_cache::PageCache> = match meta.compression {
+            Compression::None => pc,
+            Compression::Zlib => {
+                let dec = page_cache::ZlibUncompress{};
+                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
+                Box::new(wrapped)
+            }
+        };
+
+        return Ok(Self {
+            index: index,
+            page_cache: uncompressed_cache,
+            data_start: data_start,
+            meta: meta,
+        });
+    }
+}
+impl InnerReader for InnerReader_Impl_v2 {
+    fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>> {
+        let index_start = self.data_start + self.meta.data_len as u64;
+        let (offset, right_bound) = match self.index.find_bounds(key, index_start) {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+
+        let chunk = self.page_cache.get_chunk(offset, right_bound - offset)?;
+        let block = block_reader::ReferenceBlock::new(chunk);
+        let found = block.find_key_rb(key)?;
+        Ok(found.map(|v| GetResult::Ref(v)))
     }
 }
 
@@ -308,15 +493,16 @@ impl SSTableReader {
         let mut file = File::open(filename)?;
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
-        let meta = match meta.meta {
-            MetaData::V1_0(meta) => meta,
-        };
-        let inner: Box<dyn InnerReader> = match meta.compression {
-            Compression::None => Box::new(MmapSSTableReaderV1_0::new(
-                meta, data_start, file, opts.cache,
-            )?),
-            Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, opts.cache)?),
-        };
+        // let meta = match meta.meta {
+        //     MetaData::V1_0(meta) => meta,
+        // };
+        // let inner: Box<dyn InnerReader> = match meta.compression {
+        //     Compression::None => Box::new(MmapSSTableReaderV1_0::new(
+        //         meta, data_start, file, opts.cache,
+        //     )?),
+        //     Compression::Zlib => Box::new(ZlibReaderV1_0::new(meta, data_start, file, opts.cache)?),
+        // };
+        let inner = Box::new(InnerReader_Impl_v2::new(file, data_start, meta, opts)?);
         Ok(SSTableReader { inner: inner })
     }
     pub fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>> {

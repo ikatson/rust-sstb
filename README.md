@@ -1,5 +1,6 @@
 # TODO
 - [x] u32 keys and values, not u64
+- [ ] writing "flush_every"'s default should depend on the default compression.
 - [ ] range queries
 - [ ] zlib bounded and unbounded performs the same in benchmarks
 - [ ] remove all unsafe and unwrap

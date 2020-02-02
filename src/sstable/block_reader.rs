@@ -76,8 +76,14 @@ pub struct ReferenceBlock<'a> {
     buf: &'a [u8],
 }
 
-impl<'r> Block for ReferenceBlock<'r> {
-    fn find_key<'a, 'b>(&'a mut self, key: &[u8]) -> Result<Option<&'a [u8]>> {
+impl<'r> ReferenceBlock<'r> {
+    pub fn new(b: &'r [u8]) -> Self {
+        Self{buf: b}
+    }
+}
+
+impl<'r> ReferenceBlock<'r> {
+    pub fn find_key_rb<'a, 'b>(&'a self, key: &[u8]) -> Result<Option<&'r [u8]>> {
         macro_rules! buf_get {
             ($x:expr) => {{
                 self.buf
@@ -115,6 +121,12 @@ impl<'r> Block for ReferenceBlock<'r> {
             }
         }
         return Ok(None);
+    }
+}
+
+impl<'r> Block for ReferenceBlock<'r> {
+    fn find_key<'a, 'b>(&'a mut self, key: &[u8]) -> Result<Option<&'a [u8]>> {
+        self.find_key_rb(key)
     }
 }
 
