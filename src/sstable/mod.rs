@@ -308,6 +308,6 @@ mod tests {
     fn test_compressed_with_snappy_basic_sanity() {
         let mut options = WriteOptions::default();
         options.compression = Compression::Snappy;
-        test_basic_sanity(options, "/tmp/sstable_zlib");
+        test_basic_sanity(options, "/tmp/sstable_snappy");
     }
 }
