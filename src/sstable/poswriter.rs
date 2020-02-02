@@ -16,6 +16,12 @@ impl<W> PosWriter<W> {
     pub fn current_offset(&self) -> usize {
         self.offset
     }
+    pub fn reset_offset(&mut self, offset: usize) {
+        self.offset = offset;
+    }
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.w
+    }
     pub fn into_inner(self) -> W {
         self.w
     }

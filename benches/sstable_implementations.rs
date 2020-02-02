@@ -81,26 +81,30 @@ fn criterion_benchmark(c: &mut Criterion) {
     let make_write_opts = |compression, flush| WriteOptions::builder().compression(compression).flush_every(flush).build();
 
     for (prefix, write_opts) in vec![
-        ("mmap_no_compression_flush_4096", make_write_opts(Compression::None, 4096)),
-        ("mmap_no_compression_flush_8192", make_write_opts(Compression::None, 8192)),
-        ("zlib_flush_4096", make_write_opts(Compression::Zlib, 4096)),
-        ("zlib_flush_8192", make_write_opts(Compression::Zlib, 8192)),
+        ("compress=none,flush=4096", make_write_opts(Compression::None, 4096)),
+        ("compress=none,flush=8192", make_write_opts(Compression::None, 8192)),
+        ("compress=zlib,flush=4096", make_write_opts(Compression::Zlib, 4096)),
+        ("compress=zlib,flush=8192", make_write_opts(Compression::Zlib, 8192)),
     ].into_iter() {
         let filename = "/tmp/sstable";
         state.write_sstable(filename, write_opts).unwrap();
 
         for (middle, read_opts) in [
             ("nocache", ReadOptions{cache: None}),
-            ("cache_32", ReadOptions{cache: Some(ReadCache::Blocks(32))}),
-            ("cache_unbounded", ReadOptions{cache: Some(ReadCache::Unbounded)}),
+            ("cache=32", ReadOptions{cache: Some(ReadCache::Blocks(32))}),
+            ("cache=unbounded", ReadOptions{cache: Some(ReadCache::Unbounded)}),
         ].iter() {
-            c.bench_function(&format!("{}::open::{}::{} items", prefix, middle, items), |b| {
+            // this takes forever
+            if write_opts.compression == Compression::Zlib && read_opts.cache.is_none() {
+                continue
+            }
+            c.bench_function(&format!("{} test=open {} items={}", prefix, middle, items), |b| {
                 b.iter(|| {
                     SSTableReader::new_with_options(filename, &read_opts).unwrap()
                 })
             });
 
-            c.bench_function(&format!("{}::get::{}::{} items", prefix, middle, items), |b| {
+            c.bench_function(&format!("{} test=get {} items={}", prefix, middle, items), |b| {
                 b.iter_batched(
                     || {
                         SSTableReader::new_with_options(

@@ -13,6 +13,7 @@ flate2 = "^1"
 lru = "^0.4"
 byteorder = "^1"
 bytes = "*"
+snap = "^0.2"
 
 [dev-dependencies]
 criterion = "^0.3"

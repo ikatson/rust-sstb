@@ -73,7 +73,7 @@ pub struct Version {
     minor: u16,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub enum Compression {
     None,
     Zlib,
@@ -232,7 +232,7 @@ impl WriteOptionsBuilder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct WriteOptions {
     pub compression: Compression,
     pub flush_every: usize,
@@ -279,17 +279,6 @@ pub fn write_btree_map<K: AsRef<[u8]>, V: AsRef<[u8]>, P: AsRef<Path>>(
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-
-    fn get_current_pid_rss() -> usize {
-        let pid = format!("{}", std::process::id());
-        let out = std::process::Command::new("ps")
-            .args(&["-p", &pid, "-o", "rss"])
-            .output()
-            .unwrap();
-        let out = String::from_utf8(out.stdout).unwrap();
-        let pid_line = out.lines().nth(1).unwrap();
-        pid_line.trim().parse::<usize>().unwrap()
-    }
 
     fn test_basic_sanity(options: WriteOptions, filename: &str) {
         let mut map = BTreeMap::new();

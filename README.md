@@ -1,6 +1,9 @@
 # TODO
 - [x] u32 keys and values, not u64
 - [ ] range queries
+- [ ] zlib bounded and unbounded performs the same in benchmarks
+- [ ] remove all unsafe and unwrap
+- [ ] analyze all casts from u64 to usize
 - [ ] generic file reading
   - too much duplication
   - variants we have today
