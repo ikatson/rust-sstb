@@ -13,7 +13,7 @@ struct TestState {
     shuffled: Vec<Vec<u8>>
 }
 
-const ValueLen: usize = 1024;
+const VALUE_LEN: usize = 128;
 
 impl TestState {
     fn new(len: usize, limit: usize) -> Self {
@@ -44,7 +44,7 @@ impl TestState {
         let mut iter = self.sorted_iter.clone();
 
         let mut writer = writer::SSTableWriterV1::new_with_options(filename, write_opts)?;
-        let buf = [0; ValueLen];
+        let buf = [0; VALUE_LEN];
 
         while let Some(key) = iter.next() {
             writer.set(key, &buf)?;
@@ -54,26 +54,6 @@ impl TestState {
     }
 }
 
-
-// fn test_large_mmap_file_write_then_read() {
-//     let mut write_opts = WriteOptions::default();
-//     write_opts.compression = Compression::None;
-//     let filename = "/tmp/sstable_big";
-//     test_large_file_with_options(write_opts, ReadOptions::default(), filename, 800_000, true);
-// }
-
-// fn test_large_mmap_file_read() {
-//     let filename = "/tmp/sstable_big";
-//     test_large_file_with_options(WriteOptions::default(), ReadOptions::default(), filename, 800_000, false);
-// }
-
-// fn test_large_zlib_file_write_then_read() {
-//     let mut opts = WriteOptions::default();
-//     opts.compression = Compression::Zlib;
-//     let filename = "/tmp/sstable_big_zlib";
-//     test_large_file_with_options(opts, ReadOptions::default(), filename, 500_000, true);
-// }
-
 fn criterion_benchmark(c: &mut Criterion) {
     let items = 10_000;
     let state = TestState::new(10, items);
@@ -81,26 +61,28 @@ fn criterion_benchmark(c: &mut Criterion) {
     let make_write_opts = |compression, flush| WriteOptions::builder().compression(compression).flush_every(flush).build();
 
     for (prefix, write_opts, read_opts) in vec![
-        ("mmap,compress=none,flush=4096", make_write_opts(Compression::None, 4096), ReadOptions{cache: None, use_mmap: true}),
-        ("mmap,compress=none,flush=8192", make_write_opts(Compression::None, 8192), ReadOptions{cache: None, use_mmap: true}),
+        ("mmap,compress=none,flush=4096,nocache", make_write_opts(Compression::None, 4096), ReadOptions{cache: None, use_mmap: true}),
 
-        ("no_mmap,compress=none,flush=4096", make_write_opts(Compression::None, 4096), ReadOptions{cache: None, use_mmap: false}),
-        ("no_mmap,compress=none,flush=8192", make_write_opts(Compression::None, 8192), ReadOptions{cache: None, use_mmap: false}),
+        ("no_mmap,compress=none,flush=4096,nocache", make_write_opts(Compression::None, 4096), ReadOptions{cache: None, use_mmap: false}),
+        ("no_mmap,compress=none,flush=4096,cache=32", make_write_opts(Compression::None, 4096), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
+        ("no_mmap,compress=none,flush=4096,cache=unbounded", make_write_opts(Compression::None, 4096), ReadOptions{cache: Some(ReadCache::Unbounded), use_mmap: false}),
 
         ("mmap,compress=snappy,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
         ("no_mmap,compress=snappy,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
+        ("no_mmap,compress=snappy,flush=65536,cache=unbounded", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Unbounded), use_mmap: false}),
 
-        ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
-        ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
+        // ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
+        // ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
+        // ("no_mmap,compress=zlib,flush=65536,cache=unbounded", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
     ].into_iter() {
         let filename = "/tmp/sstable";
         state.write_sstable(filename, write_opts).unwrap();
 
-        c.bench_function(&format!("{} test=open items={}", prefix, items), |b| {
-            b.iter(|| {
-                SSTableReader::new_with_options(filename, &read_opts).unwrap()
-            })
-        });
+        // c.bench_function(&format!("{} test=open items={}", prefix, items), |b| {
+        //     b.iter(|| {
+        //         SSTableReader::new_with_options(filename, &read_opts).unwrap()
+        //     })
+        // });
 
         c.bench_function(&format!("{} test=get items={}", prefix, items), |b| {
             b.iter_batched(
@@ -114,7 +96,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
                     for key in state.get_shuffled_input() {
                         let value = reader.get(key).unwrap();
-                        assert_eq!(value.map(|b| b.len()), Some(ValueLen));
+                        assert_eq!(value.map(|b| b.len()), Some(VALUE_LEN));
                     }
                 },
                 BatchSize::LargeInput
