@@ -45,19 +45,20 @@ impl<W: Write> CompressionContextWriter<W> for UncompressedWriter<W> {
 pub struct CompressionContextWriterImpl<F, C, W> {
     factory: F,
     encoder: Option<C>,
-    _w: std::marker::PhantomData<W>
+    _w: std::marker::PhantomData<W>,
 }
 
 impl<F, C, W> CompressionContextWriterImpl<F, C, W>
-    where F: compression::CompressorFactory<PosWriter<W>, C>,
-          W: Write,
-          C: compression::Compressor<PosWriter<W>>
+where
+    F: compression::CompressorFactory<PosWriter<W>, C>,
+    W: Write,
+    C: compression::Compressor<PosWriter<W>>,
 {
     pub fn new(writer: W, factory: F) -> Self {
         Self {
             encoder: Some(factory.from_writer(PosWriter::new(writer, 0))),
             factory,
-            _w: std::marker::PhantomData{}
+            _w: std::marker::PhantomData {},
         }
     }
     fn get_mut_encoder(&mut self) -> Result<&mut C> {
@@ -66,9 +67,10 @@ impl<F, C, W> CompressionContextWriterImpl<F, C, W>
 }
 
 impl<F, C, W> Write for CompressionContextWriterImpl<F, C, W>
-where F: compression::CompressorFactory<PosWriter<W>, C>,
-W: Write,
-C: compression::Compressor<PosWriter<W>>
+where
+    F: compression::CompressorFactory<PosWriter<W>, C>,
+    W: Write,
+    C: compression::Compressor<PosWriter<W>>,
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.get_mut_encoder().unwrap().write(buf)
@@ -80,9 +82,10 @@ C: compression::Compressor<PosWriter<W>>
 }
 
 impl<F, C, W> CompressionContextWriter<W> for CompressionContextWriterImpl<F, C, W>
-    where F: compression::CompressorFactory<PosWriter<W>, C>,
+where
+    F: compression::CompressorFactory<PosWriter<W>, C>,
     W: Write,
-    C: compression::Compressor<PosWriter<W>>
+    C: compression::Compressor<PosWriter<W>>,
 {
     fn reset_compression_context(&mut self) -> Result<usize> {
         let enc = self.encoder.take().ok_or(ENCODER_MISSING)?;

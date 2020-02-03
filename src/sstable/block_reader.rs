@@ -8,7 +8,7 @@ pub struct ReferenceBlock<'a> {
 
 impl<'r> ReferenceBlock<'r> {
     pub fn new(b: &'r [u8]) -> Self {
-        Self{buf: b}
+        Self { buf: b }
     }
 }
 
@@ -16,9 +16,7 @@ impl<'r> ReferenceBlock<'r> {
     pub fn find_key_rb<'a, 'b>(&'a self, key: &[u8]) -> Result<Option<&'r [u8]>> {
         macro_rules! buf_get {
             ($x:expr) => {{
-                self.buf
-                    .get($x)
-                    .ok_or(INVALID_DATA)?
+                self.buf.get($x).ok_or(INVALID_DATA)?
             }};
         }
 
@@ -43,11 +41,9 @@ impl<'r> ReferenceBlock<'r> {
             match start_key.cmp(key) {
                 Ordering::Equal => {
                     return Ok(Some(value));
-                },
-                Ordering::Greater => {
-                    return Ok(None)
                 }
-                Ordering::Less => continue
+                Ordering::Greater => return Ok(None),
+                Ordering::Less => continue,
             }
         }
         return Ok(None);

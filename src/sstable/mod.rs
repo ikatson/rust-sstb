@@ -45,19 +45,19 @@ const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
 
 const OFFSET_SIZE: usize = core::mem::size_of::<OffsetLength>();
 
-mod compression;
 mod block_reader;
 mod compress_ctx_writer;
+mod compression;
 pub mod error;
+mod page_cache;
 mod posreader;
 mod poswriter;
-mod page_cache;
 
 pub mod reader;
 pub mod writer;
 
-pub use reader::ReadOptions;
 pub use reader::ReadCache;
+pub use reader::ReadOptions;
 pub use reader::SSTableReader;
 
 use error::{Error, INVALID_DATA};
@@ -99,10 +99,10 @@ fn deserialize_from_eof_is_ok<T: serde::de::DeserializeOwned, R: Read>(
                 if ioe.kind() == std::io::ErrorKind::UnexpectedEof {
                     if pr.current_offset() == 0 {
                         // This is actually fine and we hit EOF right away.
-                        return Ok(None)
+                        return Ok(None);
                     }
                 }
-                return Err(e)?
+                return Err(e)?;
             }
             _ => Err(e)?,
         },
@@ -153,7 +153,7 @@ impl KVOffset {
         })
     }
     const fn encoded_size() -> usize {
-        return KEY_LENGTH_SIZE + OFFSET_SIZE
+        return KEY_LENGTH_SIZE + OFFSET_SIZE;
     }
     fn deserialize_from_eof_is_ok<R: Read>(r: R) -> Result<Option<Self>> {
         Ok(deserialize_from_eof_is_ok(r)?)
@@ -193,7 +193,7 @@ pub struct WriteOptionsBuilder {
 impl WriteOptionsBuilder {
     pub fn new() -> Self {
         let default = WriteOptions::default();
-        Self{
+        Self {
             compression: default.compression,
             flush_every: default.flush_every,
         }
@@ -207,7 +207,7 @@ impl WriteOptionsBuilder {
         self
     }
     pub fn build(&self) -> WriteOptions {
-        WriteOptions{
+        WriteOptions {
             compression: self.compression,
             flush_every: self.flush_every,
         }
@@ -268,21 +268,9 @@ mod tests {
             reader::SSTableReader::new_with_options(filename, &reader::ReadOptions::default())
                 .unwrap();
 
-        assert_eq!(
-            reader.get(b"foo").unwrap(),
-            Some(b"some foo" as &[u8])
-        );
-        assert_eq!(
-            reader.get(b"bar").unwrap(),
-            Some(b"some bar" as &[u8])
-        );
-        assert_eq!(
-            reader
-                .get(b"foobar")
-                .unwrap()
-                ,
-            None
-        );
+        assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
+        assert_eq!(reader.get(b"bar").unwrap(), Some(b"some bar" as &[u8]));
+        assert_eq!(reader.get(b"foobar").unwrap(), None);
     }
 
     #[test]

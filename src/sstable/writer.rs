@@ -43,17 +43,18 @@ impl SSTableWriterV1 {
 
         let data_start = writer.current_offset() as u64;
 
-        let file: Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>> = match options.compression {
-            Compression::None => Box::new(UncompressedWriter::new(writer)),
-            Compression::Zlib => {
-                Box::new(CompressionContextWriterImpl::new(
-                    writer, compression::ZlibCompressorFactory::new(None)
-                ))
-            },
-            Compression::Snappy => {Box::new(CompressionContextWriterImpl::new(
-                writer, compression::SnappyCompressorFactory::new()
-            ))}
-        };
+        let file: Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>> =
+            match options.compression {
+                Compression::None => Box::new(UncompressedWriter::new(writer)),
+                Compression::Zlib => Box::new(CompressionContextWriterImpl::new(
+                    writer,
+                    compression::ZlibCompressorFactory::new(None),
+                )),
+                Compression::Snappy => Box::new(CompressionContextWriterImpl::new(
+                    writer,
+                    compression::SnappyCompressorFactory::new(),
+                )),
+            };
 
         Ok(Self {
             // TODO: this cast is safe, however concerning...
@@ -83,7 +84,8 @@ impl SSTableWriterV1 {
                     KVOffset::new(key.len(), offset)?.serialize_into(&mut writer)?;
                     writer.write_all(&key)?;
                 }
-                let index_len = self.data_start + writer.reset_compression_context()? as u64 - index_start;
+                let index_len =
+                    self.data_start + writer.reset_compression_context()? as u64 - index_start;
                 meta.finished = true;
                 meta.index_len = index_len;
                 meta.data_len = index_start - data_start;
@@ -106,9 +108,11 @@ impl RawSSTableWriter for SSTableWriterV1 {
             self.sparse_index.push((key.to_owned(), self.data_start));
         } else {
             if self.file.current_offset() + approx_msg_len >= self.flush_every {
-                let total_offset = self.data_start + self.file.get_mut().reset_compression_context()? as u64;
+                let total_offset =
+                    self.data_start + self.file.get_mut().reset_compression_context()? as u64;
                 self.file.reset_offset(0);
-                self.sparse_index.push((key.to_owned(), total_offset as u64));
+                self.sparse_index
+                    .push((key.to_owned(), total_offset as u64));
             }
         }
         KVLength::new(key.len(), value.len())?.serialize_into(&mut self.file)?;

@@ -1,8 +1,8 @@
 use super::Result;
 
-use std::io::{Read, Write, Cursor};
-use snap;
 use super::Error;
+use snap;
+use std::io::{Cursor, Read, Write};
 
 pub trait CompressorFactory<W: Write, C: Compressor<W>> {
     fn from_writer(&self, writer: W) -> C;
@@ -19,18 +19,20 @@ pub trait Uncompress {
 /// ZLIB
 pub struct ZlibCompressorFactory<W: Write> {
     compression: flate2::Compression,
-    marker: std::marker::PhantomData<W>
+    marker: std::marker::PhantomData<W>,
 }
 
 pub struct ZlibCompressor<W: Write> {
-    inner: flate2::write::ZlibEncoder<W>
+    inner: flate2::write::ZlibEncoder<W>,
 }
 
 pub struct ZlibUncompress {}
 
 impl<W: Write> ZlibCompressor<W> {
     pub fn new(writer: W, compression: flate2::Compression) -> Self {
-        Self{inner: flate2::write::ZlibEncoder::new(writer, compression)}
+        Self {
+            inner: flate2::write::ZlibEncoder::new(writer, compression),
+        }
     }
 }
 
@@ -50,11 +52,11 @@ impl<W: Write> Compressor<W> for ZlibCompressor<W> {
     }
 }
 
-impl <W: Write> ZlibCompressorFactory<W> {
+impl<W: Write> ZlibCompressorFactory<W> {
     pub fn new(compression: Option<flate2::Compression>) -> Self {
-        ZlibCompressorFactory{
+        ZlibCompressorFactory {
             compression: compression.unwrap_or_default(),
-            marker: std::marker::PhantomData{}
+            marker: std::marker::PhantomData {},
         }
     }
 }
@@ -78,17 +80,18 @@ impl Uncompress for ZlibUncompress {
 
 /// Snappy
 pub struct SnappyCompressorFactory<W: Write> {
-    marker: std::marker::PhantomData<W>
+    marker: std::marker::PhantomData<W>,
 }
 
 pub struct SnappyCompressor<W: Write> {
-    inner: snap::Writer<W>
+    inner: snap::Writer<W>,
 }
-
 
 impl<W: Write> SnappyCompressor<W> {
     pub fn new(writer: W) -> Self {
-        Self{inner: snap::Writer::new(writer)}
+        Self {
+            inner: snap::Writer::new(writer),
+        }
     }
 }
 
@@ -114,10 +117,10 @@ impl<W: Write> Compressor<W> for SnappyCompressor<W> {
     }
 }
 
-impl <W: Write> SnappyCompressorFactory<W> {
+impl<W: Write> SnappyCompressorFactory<W> {
     pub fn new() -> Self {
-        Self{
-            marker: std::marker::PhantomData{}
+        Self {
+            marker: std::marker::PhantomData {},
         }
     }
 }
