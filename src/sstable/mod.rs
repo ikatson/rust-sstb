@@ -61,6 +61,7 @@ pub use reader::MmapUncompressedSSTableReader;
 pub use reader::ReadCache;
 pub use reader::ReadOptions;
 pub use reader::SSTableReader;
+pub use reader::ThreadSafeSSTableReader;
 
 use error::{Error, INVALID_DATA};
 

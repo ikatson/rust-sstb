@@ -38,6 +38,10 @@ impl TestState {
         self.shuffled.iter().map(|v| v as &[u8])
     }
 
+    fn get_shuffled_input_ref(&self) -> &[Vec<u8>] {
+        &self.shuffled
+    }
+
     fn write_sstable(&self, filename: &str, write_opts: WriteOptions) -> Result<()> {
         let mut iter = self.sorted_iter.clone();
 
@@ -119,12 +123,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     {
         state.write_sstable(filename, write_opts).unwrap();
 
-        // c.bench_function(&format!("{} test=open items={}", prefix, items), |b| {
-        //     b.iter(|| {
-        //         SSTableReader::new_with_options(filename, &read_opts).unwrap()
-        //     })
-        // });
-
         c.bench_function(&format!("{} test=get items={}", prefix, items), |b| {
             b.iter_batched(
                 || SSTableReader::new_with_options(filename, &read_opts).unwrap(),
@@ -133,6 +131,21 @@ fn criterion_benchmark(c: &mut Criterion) {
                         let value = reader.get(key).unwrap();
                         assert_eq!(value, Some(key));
                     }
+                },
+                BatchSize::LargeInput,
+            );
+        });
+
+        c.bench_function(&format!("{} test=get_multithreaded items={}", prefix, items), |b| {
+            b.iter_batched(
+                || ThreadSafeSSTableReader::new_with_options(filename, &read_opts).unwrap(),
+                |reader| {
+                    use rayon::prelude::*;
+
+                    state.get_shuffled_input_ref().par_iter().for_each(|key| {
+                        let value = reader.get(key).unwrap();
+                        assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key.as_ref()));
+                    });
                 },
                 BatchSize::LargeInput,
             );
