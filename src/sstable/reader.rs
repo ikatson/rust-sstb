@@ -175,7 +175,7 @@ impl ReadCache {
 
 impl Default for ReadCache {
     fn default() -> Self {
-        ReadCache::Blocks(32)
+        ReadCache::Unbounded
     }
 }
 

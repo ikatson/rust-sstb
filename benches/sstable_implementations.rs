@@ -13,8 +13,6 @@ struct TestState {
     shuffled: Vec<Vec<u8>>,
 }
 
-const VALUE_LEN: usize = 128;
-
 impl TestState {
     fn new(len: usize, limit: usize) -> Self {
         let mut it = SortedBytesIterator::new(len, limit);
@@ -44,10 +42,9 @@ impl TestState {
         let mut iter = self.sorted_iter.clone();
 
         let mut writer = writer::SSTableWriterV1::new_with_options(filename, write_opts)?;
-        let buf = [0; VALUE_LEN];
 
         while let Some(key) = iter.next() {
-            writer.set(key, &buf)?;
+            writer.set(key, key)?;
         }
 
         writer.finish()
@@ -55,8 +52,8 @@ impl TestState {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let items = 10_000;
-    let state = TestState::new(10, items);
+    let items = 100_000;
+    let state = TestState::new(32, items);
 
     let make_write_opts = |compression, flush| {
         WriteOptions::builder()
@@ -69,13 +66,13 @@ fn criterion_benchmark(c: &mut Criterion) {
     state.write_sstable(filename, make_write_opts(Compression::None, 4096)).unwrap();
 
     // Benchmark the full mmap implementation, that is thread safe.
-    c.bench_function(&format!("full mmap,flush=8192 method=get items={}", items), |b| {
+    c.bench_function(&format!("full mmap,flush=4096 method=get items={}", items), |b| {
         b.iter_batched(
             || MmapUncompressedSSTableReader::new(filename).unwrap(),
             |reader| {
                 for key in state.get_shuffled_input() {
                     let value = reader.get(key).unwrap();
-                    assert_eq!(value.map(|b| b.len()), Some(VALUE_LEN));
+                    assert_eq!(value, Some(key));
                 }
             },
             BatchSize::LargeInput,
@@ -100,34 +97,10 @@ fn criterion_benchmark(c: &mut Criterion) {
             },
         ),
         (
-            "no_mmap,compress=none,flush=4096,cache=32",
-            make_write_opts(Compression::None, 4096),
-            ReadOptions {
-                cache: Some(ReadCache::Blocks(32)),
-                use_mmap: false,
-            },
-        ),
-        (
             "no_mmap,compress=none,flush=4096,cache=unbounded",
             make_write_opts(Compression::None, 4096),
             ReadOptions {
                 cache: Some(ReadCache::Unbounded),
-                use_mmap: false,
-            },
-        ),
-        (
-            "mmap,compress=snappy,flush=65536,cache=32",
-            make_write_opts(Compression::Snappy, 8192),
-            ReadOptions {
-                cache: Some(ReadCache::Blocks(32)),
-                use_mmap: true,
-            },
-        ),
-        (
-            "no_mmap,compress=snappy,flush=65536,cache=32",
-            make_write_opts(Compression::Snappy, 8192),
-            ReadOptions {
-                cache: Some(ReadCache::Blocks(32)),
                 use_mmap: false,
             },
         ),
@@ -160,7 +133,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 |mut reader| {
                     for key in state.get_shuffled_input() {
                         let value = reader.get(key).unwrap();
-                        assert_eq!(value.map(|b| b.len()), Some(VALUE_LEN));
+                        assert_eq!(value, Some(key));
                     }
                 },
                 BatchSize::LargeInput,
