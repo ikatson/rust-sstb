@@ -5,6 +5,7 @@ pub const INVALID_DATA: Error = Error::InvalidData("corrupt SStable or bug");
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
+    CantUseCompressedFileWithMultiThreadedMmap,
     ProgrammingError(&'static str),
     InvalidData(&'static str),
     UnsupportedVersion(Version),

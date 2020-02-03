@@ -512,9 +512,7 @@ impl MmapUncompressedSSTableReader {
         };
 
         if meta.compression != Compression::None {
-            return Err(Error::ProgrammingError(
-                "cannot use MmapUncompressedSSTableReader with this file",
-            ));
+            return Err(Error::CantUseCompressedFileWithMultiThreadedMmap);
         }
 
         let index_start = data_start + (meta.data_len as u64);
@@ -530,9 +528,9 @@ impl MmapUncompressedSSTableReader {
 
         let index = MemIndex::from_static_buf(&mmap_buf[index_start as usize..], meta.index_len)?;
         return Ok(Self {
-            mmap: mmap,
-            index: index,
-            index_start: index_start,
+            mmap,
+            index,
+            index_start,
         });
     }
     pub fn get<'a, 'b>(&'a self, key: &'b [u8]) -> Result<Option<&'a [u8]>> {
