@@ -45,8 +45,12 @@ impl SSTableWriterV1 {
 
         let file: Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>> = match options.compression {
             Compression::None => Box::new(UncompressedWriter::new(writer)),
-            Compression::Zlib => Box::new(ZlibWriter::new(writer)),
-            Compression::Snappy => Box::new(SnappyWriter::new(writer))
+            Compression::Zlib => {
+                Box::new(CompressionContextWriterImpl::new(
+                    writer, compression::ZlibCompressorFactory::new(None)
+                ))
+            },
+            Compression::Snappy => {unimplemented!()}
         };
 
         Ok(Self {

@@ -39,6 +39,7 @@ pub struct ZlibDecompressorFactory<R: Read> {
 pub struct ZlibDecompressor<R: Read> {
     inner: flate2::read::ZlibDecoder<R>
 }
+pub struct ZlibUncompress {}
 
 impl<W: Write> ZlibCompressor<W> {
     pub fn new(writer: W, compression: flate2::Compression) -> Self {
@@ -102,9 +103,6 @@ impl <R: Read> ZlibDecompressorFactory<R> {
         ZlibDecompressorFactory{marker: std::marker::PhantomData{}}
     }
 }
-
-// TODO: put all compressors/decompressors under generic encoder/decoder API.
-pub struct ZlibUncompress {}
 
 impl Uncompress for ZlibUncompress {
     fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
