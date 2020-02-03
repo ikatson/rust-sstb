@@ -50,6 +50,7 @@ mod compress_ctx_writer;
 mod compression;
 pub mod error;
 mod page_cache;
+mod thread_safe_page_cache;
 mod posreader;
 mod poswriter;
 

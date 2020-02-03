@@ -5,7 +5,7 @@
 - [ ] read cache size should be in bytes, not blocks
 - [ ] range queries
 - [ ] add length to encoded bits
-- [ ] mmap with no compression is already multi-threaded, but the API does not
+- [x] mmap with no compression is already multi-threaded, but the API does not
   reflect that
 - [x] zlib bounded and unbounded performs the same in benchmarks
 - [ ] remove as much as possible unsafe and unwrap

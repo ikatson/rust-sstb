@@ -16,6 +16,9 @@ impl StaticBufCache {
     pub fn new(buf: &'static [u8]) -> Self {
         Self { buf: buf }
     }
+    pub fn get_buf(&self) -> &'static [u8] {
+        self.buf
+    }
 }
 
 impl PageCache for StaticBufCache {
