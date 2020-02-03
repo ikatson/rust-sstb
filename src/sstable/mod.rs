@@ -53,6 +53,7 @@ mod page_cache;
 mod posreader;
 mod poswriter;
 mod thread_safe_page_cache;
+mod tslru;
 
 pub mod reader;
 pub mod writer;

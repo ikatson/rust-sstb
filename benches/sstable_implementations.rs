@@ -90,7 +90,10 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     c.bench_function(
-        &format!("full mmap,flush=4096 method=get_multithreaded items={}", items),
+        &format!(
+            "full mmap,flush=4096 method=get_multithreaded items={}",
+            items
+        ),
         |b| {
             b.iter_batched(
                 || MmapUncompressedSSTableReader::new(filename).unwrap(),
@@ -155,20 +158,23 @@ fn criterion_benchmark(c: &mut Criterion) {
             );
         });
 
-        c.bench_function(&format!("{} test=get_multithreaded items={}", prefix, items), |b| {
-            b.iter_batched(
-                || ThreadSafeSSTableReader::new_with_options(filename, &read_opts).unwrap(),
-                |reader| {
-                    use rayon::prelude::*;
+        c.bench_function(
+            &format!("{} test=get_multithreaded items={}", prefix, items),
+            |b| {
+                b.iter_batched(
+                    || ThreadSafeSSTableReader::new_with_options(filename, &read_opts).unwrap(),
+                    |reader| {
+                        use rayon::prelude::*;
 
-                    state.get_shuffled_input_ref().par_iter().for_each(|key| {
-                        let value = reader.get(key).unwrap();
-                        assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key.as_ref()));
-                    });
-                },
-                BatchSize::LargeInput,
-            );
-        });
+                        state.get_shuffled_input_ref().par_iter().for_each(|key| {
+                            let value = reader.get(key).unwrap();
+                            assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key.as_ref()));
+                        });
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        );
     }
 }
 

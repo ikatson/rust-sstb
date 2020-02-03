@@ -1,12 +1,8 @@
 use super::compression::Uncompress;
+use super::tslru::TSLRUCache;
 use super::{error, page_cache, reader, Result};
-use lru::LruCache;
-use parking_lot::Mutex;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 use bytes::Bytes;
-
 use nix::sys::uio::pread;
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
@@ -41,16 +37,14 @@ impl TSPageCache for page_cache::StaticBufCache {
 
 pub struct FileBackedPageCache {
     file: File,
-    caches: Vec<Mutex<LruCache<u64, Bytes>>>,
+    caches: TSLRUCache,
 }
 
 impl FileBackedPageCache {
     pub fn new(file: File, cache: reader::ReadCache, count: usize) -> Self {
         Self {
             file: file,
-            caches: core::iter::repeat_with(|| Mutex::new(cache.lru()))
-                .take(count)
-                .collect(),
+            caches: TSLRUCache::new(count, cache),
         }
     }
     fn read_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
@@ -61,26 +55,14 @@ impl FileBackedPageCache {
 
 impl TSPageCache for FileBackedPageCache {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
-        let mut hasher = DefaultHasher::new();
-        offset.hash(&mut hasher);
-        let hash = hasher.finish() as usize;
-        let idx = hash % self.caches.len();
-
-        let mut lru = unsafe { self.caches.get_unchecked(idx) }.lock();
-        match lru.get(&offset) {
-            Some(bytes) => Ok(bytes.clone()),
-            None => {
-                let bytes = self.read_chunk(offset, length)?;
-                lru.put(offset, bytes.clone());
-                Ok(bytes)
-            }
-        }
+        self.caches
+            .get_or_insert(offset, || self.read_chunk(offset, length))
     }
 }
 
 pub struct WrappedCache<PC, U> {
     inner: PC,
-    caches: Vec<Mutex<LruCache<u64, Bytes>>>,
+    caches: TSLRUCache,
     uncompress: U,
 }
 
@@ -88,9 +70,7 @@ impl<PC, U> WrappedCache<PC, U> {
     pub fn new(inner: PC, uncompress: U, cache: reader::ReadCache, count: usize) -> Self {
         Self {
             inner: inner,
-            caches: core::iter::repeat_with(|| Mutex::new(cache.lru()))
-                .take(count)
-                .collect(),
+            caches: TSLRUCache::new(count, cache),
             uncompress: uncompress,
         }
     }
@@ -108,21 +88,11 @@ where
     PC: TSPageCache,
 {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
-        let mut hasher = DefaultHasher::new();
-        offset.hash(&mut hasher);
-        let hash = hasher.finish() as usize;
-        let idx = hash % self.caches.len();
-
-        let mut lru = unsafe { self.caches.get_unchecked(idx) }.lock();
-        match lru.get(&offset) {
-            Some(bytes) => Ok(bytes.clone()),
-            None => {
-                let uncompressed = self.inner.get_chunk(offset, length)?;
-                let buf = self.uncompress.uncompress(&uncompressed)?;
-                let bytes = Bytes::from(buf);
-                lru.put(offset, bytes.clone());
-                Ok(bytes)
-            }
-        }
+        self.caches.get_or_insert(offset, || {
+            let uncompressed = self.inner.get_chunk(offset, length)?;
+            let buf = self.uncompress.uncompress(&uncompressed)?;
+            let bytes = Bytes::from(buf);
+            Ok(bytes)
+        })
     }
 }
