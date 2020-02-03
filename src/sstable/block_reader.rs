@@ -2,6 +2,41 @@ use super::*;
 
 use std::cmp::{Ord, Ordering};
 
+pub fn find_key_offset(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>> {
+    macro_rules! buf_get {
+        ($x:expr) => {{
+            buf.get($x).ok_or(INVALID_DATA)?
+        }};
+    }
+
+    let kvlen_encoded_size = KVLength::encoded_size();
+
+    let mut offset = 0;
+    while offset < buf.len() {
+        let kvlength = bincode::deserialize::<KVLength>(&buf)?;
+        let (start_key, cursor) = {
+            let key_start = offset + kvlen_encoded_size;
+            let key_end = key_start + kvlength.key_length as usize;
+            (buf_get!(key_start..key_end), key_end)
+        };
+
+        let (start, end) = {
+            let value_end = cursor + kvlength.value_length as usize;
+            (cursor, value_end)
+        };
+        offset = end;
+
+        match start_key.cmp(key) {
+            Ordering::Equal => {
+                return Ok(Some((start, end)));
+            },
+            Ordering::Greater => return Ok(None),
+            Ordering::Less => continue,
+        }
+    }
+    return Ok(None);
+}
+
 pub struct ReferenceBlock<'a> {
     buf: &'a [u8],
 }
@@ -14,38 +49,10 @@ impl<'r> ReferenceBlock<'r> {
 
 impl<'r> ReferenceBlock<'r> {
     pub fn find_key_rb<'a, 'b>(&'a self, key: &[u8]) -> Result<Option<&'r [u8]>> {
-        macro_rules! buf_get {
-            ($x:expr) => {{
-                self.buf.get($x).ok_or(INVALID_DATA)?
-            }};
+        if let Some((start, end)) = find_key_offset(&self.buf, key)? {
+            self.buf.get(start..end).ok_or(INVALID_DATA).map(|v| Some(v))
+        } else {
+            Ok(None)
         }
-
-        let kvlen_encoded_size = KVLength::encoded_size();
-
-        let mut offset = 0;
-        while offset < self.buf.len() {
-            let kvlength = bincode::deserialize::<KVLength>(&self.buf)?;
-            let (start_key, cursor) = {
-                let key_start = offset + kvlen_encoded_size;
-                let key_end = key_start + kvlength.key_length as usize;
-                (buf_get!(key_start..key_end), key_end)
-            };
-
-            let (value, cursor) = {
-                let value_end = cursor + kvlength.value_length as usize;
-                let value = buf_get!(cursor..value_end);
-                (value, value_end)
-            };
-            offset = cursor;
-
-            match start_key.cmp(key) {
-                Ordering::Equal => {
-                    return Ok(Some(value));
-                }
-                Ordering::Greater => return Ok(None),
-                Ordering::Less => continue,
-            }
-        }
-        return Ok(None);
     }
 }

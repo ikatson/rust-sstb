@@ -260,12 +260,15 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    fn test_basic_sanity(options: WriteOptions, filename: &str) {
+    fn write_basic_map(filename: &str, options: WriteOptions) {
         let mut map = BTreeMap::new();
         map.insert(b"foo", b"some foo");
         map.insert(b"bar", b"some bar");
         write_btree_map(&map, filename, Some(options)).unwrap();
+    }
 
+    fn test_basic_sanity(options: WriteOptions, filename: &str) {
+        write_basic_map(filename, options);
         let mut reader =
             reader::SSTableReader::new_with_options(filename, &reader::ReadOptions::default())
                 .unwrap();
@@ -273,6 +276,26 @@ mod tests {
         assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
         assert_eq!(reader.get(b"bar").unwrap(), Some(b"some bar" as &[u8]));
         assert_eq!(reader.get(b"foobar").unwrap(), None);
+    }
+
+    fn test_basic_sanity_threads(options: WriteOptions, filename: &str) {
+        write_basic_map(filename, options);
+
+        let mut reader =
+            reader::ThreadSafeSSTableReader::new_with_options(filename, &reader::ReadOptions::default())
+                .unwrap();
+
+        crossbeam::scope(|s| {
+            s.spawn(|_| {
+                assert_eq!(reader.get(b"foo").unwrap().map(|v| v.as_ref()), Some(b"some foo" as &[u8]));
+            });
+            s.spawn(|_| {
+                assert_eq!(reader.get(b"bar").unwrap().map(|v| v.as_ref()), Some(b"some bar" as &[u8]));
+            });
+            s.spawn(|_| {
+                assert_eq!(reader.get(b"foobar").unwrap(), None);
+            });
+        }).unwrap();
     }
 
     #[test]
@@ -285,12 +308,9 @@ mod tests {
     #[test]
     fn test_mmap_uncompressed_basic_sanity() {
         let filename = "/tmp/sstable_mmap_uncompressed";
-        let mut map = BTreeMap::new();
         let mut options = WriteOptions::default();
         options.compression = Compression::None;
-        map.insert(b"foo", b"some foo");
-        map.insert(b"bar", b"some bar");
-        write_btree_map(&map, filename, Some(options)).unwrap();
+        write_basic_map(filename, options);
 
         let reader = reader::MmapUncompressedSSTableReader::new(filename).unwrap();
         assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
@@ -310,5 +330,48 @@ mod tests {
         let mut options = WriteOptions::default();
         options.compression = Compression::Snappy;
         test_basic_sanity(options, "/tmp/sstable_snappy");
+    }
+
+    #[test]
+    fn test_uncompressed_basic_sanity_threads() {
+        let mut options = WriteOptions::default();
+        options.compression = Compression::None;
+        test_basic_sanity_threads(options, "/tmp/sstable_threads");
+    }
+
+    #[test]
+    fn test_mmap_uncompressed_basic_sanity_threads() {
+        let filename = "/tmp/sstable_mmap_uncompressed_threads";
+        let mut options = WriteOptions::default();
+        options.compression = Compression::None;
+        write_basic_map(filename, options);
+
+        let reader = reader::MmapUncompressedSSTableReader::new(filename).unwrap();
+
+        crossbeam::scope(|s| {
+            s.spawn(|_| {
+                assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
+            });
+            s.spawn(|_| {
+                assert_eq!(reader.get(b"bar").unwrap(), Some(b"some bar" as &[u8]));
+            });
+            s.spawn(|_| {
+                assert_eq!(reader.get(b"foobar").unwrap(), None);
+            });
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_compressed_with_zlib_basic_sanity_threads() {
+        let mut options = WriteOptions::default();
+        options.compression = Compression::Zlib;
+        test_basic_sanity_threads(options, "/tmp/sstable_zlib_threads");
+    }
+
+    #[test]
+    fn test_compressed_with_snappy_basic_sanity_threads() {
+        let mut options = WriteOptions::default();
+        options.compression = Compression::Snappy;
+        test_basic_sanity_threads(options, "/tmp/sstable_snappy_threads");
     }
 }

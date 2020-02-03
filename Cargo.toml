@@ -16,11 +16,13 @@ bytes = "*"
 snap = "^0.2"
 nix = "^0.5"
 parking_lot = "^0.10"
+num_cpus = "^1"
 
 [dev-dependencies]
 criterion = "^0.3"
 chashmap = "*"
 rand = {version = "^0.7", features=["small_rng"]}
+crossbeam = "^0.7"
 
 [[bench]]
 name = "sstable_implementations"

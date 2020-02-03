@@ -6,9 +6,11 @@ use std::path::Path;
 
 use bincode;
 use memmap;
+use num_cpus;
 
 use super::*;
 
+use bytes::Bytes;
 use lru::LruCache;
 
 enum MetaData {
@@ -183,6 +185,7 @@ impl Default for ReadCache {
 pub struct ReadOptions {
     pub cache: Option<ReadCache>,
     pub use_mmap: bool,
+    pub thread_buckets: Option<usize>,
 }
 
 impl Default for ReadOptions {
@@ -190,6 +193,7 @@ impl Default for ReadOptions {
         Self {
             cache: Some(ReadCache::default()),
             use_mmap: true,
+            thread_buckets: Some(num_cpus::get()),
         }
     }
 }
@@ -297,6 +301,114 @@ impl InnerReader {
     }
 }
 
+struct ThreadSafeInnerReader {
+    index: Box<dyn Index>,
+    // This is just to hold an mmap reference to be dropped in the end.
+    _mmap: Option<memmap::Mmap>,
+    page_cache: Box<dyn thread_safe_page_cache::TSPageCache>,
+    meta: MetaV1_0,
+    data_start: u64,
+}
+
+impl ThreadSafeInnerReader {
+    pub fn new(
+        mut file: File,
+        data_start: u64,
+        meta: MetaResult,
+        opts: &ReadOptions,
+    ) -> Result<Self> {
+        let meta = match meta.meta {
+            MetaData::V1_0(meta) => meta,
+        };
+
+        let index_start = data_start + (meta.data_len as u64);
+
+        file.seek(SeekFrom::Start(index_start))?;
+
+        let mmap = if opts.use_mmap {
+            Some(unsafe { memmap::Mmap::map(&file) }?)
+        } else {
+            None
+        };
+        let mmap_buf = mmap.as_ref().map(|mmap| {
+            let buf = &mmap as &[u8];
+            let buf = buf as *const [u8];
+            let buf: &'static [u8] = unsafe { &*buf };
+            buf
+        });
+
+        let index: Box<dyn Index> = match meta.compression {
+            Compression::None => match mmap_buf {
+                Some(mmap) => Box::new(MemIndex::from_static_buf(
+                    &mmap[index_start as usize..],
+                    meta.index_len,
+                )?),
+                None => Box::new(OwnedIndex::from_reader(&mut file)?),
+            },
+            Compression::Zlib => {
+                // does not make sense to use mmap for index as we are not going to access
+                // the pages anyway.
+                let reader = flate2::read::ZlibDecoder::new(&mut file);
+                Box::new(OwnedIndex::from_reader(reader)?)
+            }
+            Compression::Snappy => {
+                let reader = snap::Reader::new(&mut file);
+                Box::new(OwnedIndex::from_reader(reader)?)
+            }
+        };
+
+        let num_cpus = opts.thread_buckets.unwrap_or_else(|| num_cpus::get());
+
+        let pc: Box<dyn thread_safe_page_cache::TSPageCache> = match mmap_buf {
+            Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
+            None => Box::new(thread_safe_page_cache::FileBackedPageCache::new(
+                file,
+                opts.cache.clone().unwrap_or(ReadCache::default()),
+                num_cpus,
+            )),
+        };
+
+        let uncompressed_cache: Box<dyn thread_safe_page_cache::TSPageCache> = match meta.compression {
+            Compression::None => pc,
+            Compression::Zlib => {
+                let dec = compression::ZlibUncompress {};
+                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                let wrapped = thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                Box::new(wrapped)
+            }
+            Compression::Snappy => {
+                let dec = compression::SnappyUncompress {};
+                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                let wrapped = thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                Box::new(wrapped)
+            }
+        };
+
+        return Ok(Self {
+            _mmap: mmap,
+            index: index,
+            page_cache: uncompressed_cache,
+            data_start: data_start,
+            meta: meta,
+        });
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
+        let index_start = self.data_start + self.meta.data_len as u64;
+        let (offset, right_bound) = match self.index.find_bounds(key, index_start) {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+
+        let chunk: Bytes = self.page_cache.get_chunk(offset, right_bound - offset)?;
+        if let Some((start, end)) = block_reader::find_key_offset(&chunk, key)? {
+            Ok(Some(chunk.slice(start..end)))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl SSTableReader {
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
         Self::new_with_options(filename, &ReadOptions::default())
@@ -310,6 +422,27 @@ impl SSTableReader {
         Ok(SSTableReader { inner: inner })
     }
     pub fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
+        self.inner.get(key)
+    }
+}
+
+pub struct ThreadSafeSSTableReader {
+    inner: ThreadSafeInnerReader
+}
+
+impl ThreadSafeSSTableReader {
+    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
+        Self::new_with_options(filename, &ReadOptions::default())
+    }
+
+    pub fn new_with_options<P: AsRef<Path>>(filename: P, opts: &ReadOptions) -> Result<Self> {
+        let mut file = File::open(filename)?;
+        let meta = read_metadata(&mut file)?;
+        let data_start = meta.offset as u64;
+        let inner = ThreadSafeInnerReader::new(file, data_start, meta, opts)?;
+        Ok(Self { inner: inner })
+    }
+    pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         self.inner.get(key)
     }
 }

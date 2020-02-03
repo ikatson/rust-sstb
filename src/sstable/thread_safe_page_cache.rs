@@ -39,12 +39,18 @@ impl TSPageCache for page_cache::StaticBufCache {
     }
 }
 
-struct FileBackedPageCache {
+pub struct FileBackedPageCache {
     file: File,
     caches: Vec<Mutex<LruCache<u64, Bytes>>>,
 }
 
 impl FileBackedPageCache {
+    pub fn new(file: File, cache: reader::ReadCache, count: usize) -> Self {
+        Self{
+            file: file,
+            caches: core::iter::repeat_with(|| Mutex::new(cache.lru())).take(count).collect(),
+        }
+    }
     fn read_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         let buf = pread_exact(self.file.as_raw_fd(), offset, length)?;
         Ok(Bytes::from(buf))
