@@ -181,11 +181,56 @@ impl Default for ReadCache {
     }
 }
 
+pub struct ReadOptionsBuilder {
+    pub cache: Option<ReadCache>,
+    pub use_mmap: bool,
+    pub thread_buckets: Option<usize>,
+}
+
+impl ReadOptionsBuilder {
+    pub fn new() -> Self {
+        let default = ReadOptions::default();
+        Self {
+            cache: default.cache,
+            use_mmap: default.use_mmap,
+            thread_buckets: default.thread_buckets,
+        }
+    }
+    pub fn cache(&mut self, cache: Option<ReadCache>) -> &mut Self {
+        self.cache = cache;
+        self
+    }
+    pub fn use_mmap(&mut self, use_mmap: bool) -> &mut Self {
+        self.use_mmap = use_mmap;
+        self
+    }
+    pub fn thread_buckets(&mut self, thread_buckets: Option<usize>) -> &mut Self {
+        self.thread_buckets = thread_buckets;
+        self
+    }
+    pub fn build(&self) -> ReadOptions {
+        ReadOptions {
+            cache: self.cache,
+            use_mmap: self.use_mmap,
+            thread_buckets: self.thread_buckets,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct ReadOptions {
     pub cache: Option<ReadCache>,
     pub use_mmap: bool,
     pub thread_buckets: Option<usize>,
+}
+
+impl ReadOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn builder() -> ReadOptionsBuilder {
+        ReadOptionsBuilder::new()
+    }
 }
 
 impl Default for ReadOptions {
@@ -368,21 +413,24 @@ impl ThreadSafeInnerReader {
             )),
         };
 
-        let uncompressed_cache: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> = match meta.compression {
-            Compression::None => pc,
-            Compression::Zlib => {
-                let dec = compression::ZlibUncompress {};
-                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
-                let wrapped = thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
-                Box::new(wrapped)
-            }
-            Compression::Snappy => {
-                let dec = compression::SnappyUncompress {};
-                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
-                let wrapped = thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
-                Box::new(wrapped)
-            }
-        };
+        let uncompressed_cache: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> =
+            match meta.compression {
+                Compression::None => pc,
+                Compression::Zlib => {
+                    let dec = compression::ZlibUncompress {};
+                    let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                    let wrapped =
+                        thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                    Box::new(wrapped)
+                }
+                Compression::Snappy => {
+                    let dec = compression::SnappyUncompress {};
+                    let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                    let wrapped =
+                        thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                    Box::new(wrapped)
+                }
+            };
 
         return Ok(Self {
             _mmap: mmap,
@@ -427,7 +475,7 @@ impl SSTableReader {
 }
 
 pub struct ThreadSafeSSTableReader {
-    inner: ThreadSafeInnerReader
+    inner: ThreadSafeInnerReader,
 }
 
 impl ThreadSafeSSTableReader {

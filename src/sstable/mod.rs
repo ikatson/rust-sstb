@@ -50,17 +50,17 @@ mod compress_ctx_writer;
 mod compression;
 pub mod error;
 mod page_cache;
-mod thread_safe_page_cache;
 mod posreader;
 mod poswriter;
+mod thread_safe_page_cache;
 
 pub mod reader;
 pub mod writer;
 
+pub use reader::MmapUncompressedSSTableReader;
 pub use reader::ReadCache;
 pub use reader::ReadOptions;
 pub use reader::SSTableReader;
-pub use reader::MmapUncompressedSSTableReader;
 
 use error::{Error, INVALID_DATA};
 
@@ -281,21 +281,30 @@ mod tests {
     fn test_basic_sanity_threads(options: WriteOptions, filename: &str) {
         write_basic_map(filename, options);
 
-        let reader =
-            reader::ThreadSafeSSTableReader::new_with_options(filename, &reader::ReadOptions::default())
-                .unwrap();
+        let reader = reader::ThreadSafeSSTableReader::new_with_options(
+            filename,
+            &reader::ReadOptions::default(),
+        )
+        .unwrap();
 
         crossbeam::scope(|s| {
             s.spawn(|_| {
-                assert_eq!(reader.get(b"foo").unwrap().as_ref().map(|v| v.as_ref()), Some(b"some foo" as &[u8]));
+                assert_eq!(
+                    reader.get(b"foo").unwrap().as_ref().map(|v| v.as_ref()),
+                    Some(b"some foo" as &[u8])
+                );
             });
             s.spawn(|_| {
-                assert_eq!(reader.get(b"bar").unwrap().as_ref().map(|v| v.as_ref()), Some(b"some bar" as &[u8]));
+                assert_eq!(
+                    reader.get(b"bar").unwrap().as_ref().map(|v| v.as_ref()),
+                    Some(b"some bar" as &[u8])
+                );
             });
             s.spawn(|_| {
                 assert_eq!(reader.get(b"foobar").unwrap(), None);
             });
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -358,7 +367,8 @@ mod tests {
             s.spawn(|_| {
                 assert_eq!(reader.get(b"foobar").unwrap(), None);
             });
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]

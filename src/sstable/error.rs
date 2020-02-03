@@ -13,7 +13,7 @@ pub enum Error {
     KeyTooLong(usize),
     ValueTooLong(usize),
     StdStringFromUtf8Error(std::string::FromUtf8Error),
-    NixError(nix::Error)
+    NixError(nix::Error),
 }
 
 impl From<std::io::Error> for Error {

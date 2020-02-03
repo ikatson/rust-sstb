@@ -63,54 +63,53 @@ fn criterion_benchmark(c: &mut Criterion) {
     };
 
     let filename = "/tmp/sstable";
-    state.write_sstable(filename, make_write_opts(Compression::None, 4096)).unwrap();
+    state
+        .write_sstable(filename, make_write_opts(Compression::None, 4096))
+        .unwrap();
 
     // Benchmark the full mmap implementation, that is thread safe.
-    c.bench_function(&format!("full mmap,flush=4096 method=get items={}", items), |b| {
-        b.iter_batched(
-            || MmapUncompressedSSTableReader::new(filename).unwrap(),
-            |reader| {
-                for key in state.get_shuffled_input() {
-                    let value = reader.get(key).unwrap();
-                    assert_eq!(value, Some(key));
-                }
-            },
-            BatchSize::LargeInput,
-        );
-    });
+    c.bench_function(
+        &format!("full mmap,flush=4096 method=get items={}", items),
+        |b| {
+            b.iter_batched(
+                || MmapUncompressedSSTableReader::new(filename).unwrap(),
+                |reader| {
+                    for key in state.get_shuffled_input() {
+                        let value = reader.get(key).unwrap();
+                        assert_eq!(value, Some(key));
+                    }
+                },
+                BatchSize::LargeInput,
+            );
+        },
+    );
 
     for (prefix, write_opts, read_opts) in vec![
         (
             "mmap,compress=none,flush=4096,nocache",
             make_write_opts(Compression::None, 4096),
-            ReadOptions {
-                cache: None,
-                use_mmap: true,
-            },
+            ReadOptions::builder().cache(None).use_mmap(true).build(),
         ),
         (
             "no_mmap,compress=none,flush=4096,nocache",
             make_write_opts(Compression::None, 4096),
-            ReadOptions {
-                cache: None,
-                use_mmap: false,
-            },
+            ReadOptions::builder().cache(None).use_mmap(false).build(),
         ),
         (
             "no_mmap,compress=none,flush=4096,cache=unbounded",
             make_write_opts(Compression::None, 4096),
-            ReadOptions {
-                cache: Some(ReadCache::Unbounded),
-                use_mmap: false,
-            },
+            ReadOptions::builder()
+                .cache(Some(ReadCache::Unbounded))
+                .use_mmap(false)
+                .build(),
         ),
         (
             "no_mmap,compress=snappy,flush=65536,cache=unbounded",
             make_write_opts(Compression::Snappy, 8192),
-            ReadOptions {
-                cache: Some(ReadCache::Unbounded),
-                use_mmap: false,
-            },
+            ReadOptions::builder()
+                .cache(Some(ReadCache::Unbounded))
+                .use_mmap(false)
+                .build(),
         ),
         // ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
         // ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
@@ -118,7 +117,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     ]
     .into_iter()
     {
-
         state.write_sstable(filename, write_opts).unwrap();
 
         // c.bench_function(&format!("{} test=open items={}", prefix, items), |b| {

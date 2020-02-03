@@ -1,16 +1,16 @@
 use super::compression::Uncompress;
-use std::collections::hash_map::DefaultHasher;
-use super::{error, reader, Result, page_cache};
-use std::hash::{Hash, Hasher};
-use parking_lot::Mutex;
+use super::{error, page_cache, reader, Result};
 use lru::LruCache;
+use parking_lot::Mutex;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use bytes::Bytes;
 
-use std::os::unix::io::RawFd;
 use nix::sys::uio::pread;
-use std::os::unix::io::AsRawFd;
 use std::fs::File;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::io::RawFd;
 
 fn pread_exact(fd: RawFd, mut offset: u64, length: u64) -> Result<Vec<u8>> {
     let mut buf = vec![0u8; length as usize];
@@ -18,7 +18,7 @@ fn pread_exact(fd: RawFd, mut offset: u64, length: u64) -> Result<Vec<u8>> {
     while remaining > 0 {
         let size = pread(fd, &mut buf, offset as i64)? as u64;
         if size == 0 {
-            return Err(error::INVALID_DATA)
+            return Err(error::INVALID_DATA);
         }
         remaining -= size;
         offset += size;
@@ -46,9 +46,11 @@ pub struct FileBackedPageCache {
 
 impl FileBackedPageCache {
     pub fn new(file: File, cache: reader::ReadCache, count: usize) -> Self {
-        Self{
+        Self {
             file: file,
-            caches: core::iter::repeat_with(|| Mutex::new(cache.lru())).take(count).collect(),
+            caches: core::iter::repeat_with(|| Mutex::new(cache.lru()))
+                .take(count)
+                .collect(),
         }
     }
     fn read_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
@@ -64,7 +66,7 @@ impl TSPageCache for FileBackedPageCache {
         let hash = hasher.finish() as usize;
         let idx = hash % self.caches.len();
 
-        let mut lru = unsafe {self.caches.get_unchecked(idx)}.lock();
+        let mut lru = unsafe { self.caches.get_unchecked(idx) }.lock();
         match lru.get(&offset) {
             Some(bytes) => Ok(bytes.clone()),
             None => {
@@ -86,7 +88,9 @@ impl<PC, U> WrappedCache<PC, U> {
     pub fn new(inner: PC, uncompress: U, cache: reader::ReadCache, count: usize) -> Self {
         Self {
             inner: inner,
-            caches: core::iter::repeat_with(|| Mutex::new(cache.lru())).take(count).collect(),
+            caches: core::iter::repeat_with(|| Mutex::new(cache.lru()))
+                .take(count)
+                .collect(),
             uncompress: uncompress,
         }
     }
@@ -109,7 +113,7 @@ where
         let hash = hasher.finish() as usize;
         let idx = hash % self.caches.len();
 
-        let mut lru = unsafe {self.caches.get_unchecked(idx)}.lock();
+        let mut lru = unsafe { self.caches.get_unchecked(idx) }.lock();
         match lru.get(&offset) {
             Some(bytes) => Ok(bytes.clone()),
             None => {

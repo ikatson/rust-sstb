@@ -29,7 +29,7 @@ pub fn find_key_offset(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>>
         match start_key.cmp(key) {
             Ordering::Equal => {
                 return Ok(Some((start, end)));
-            },
+            }
             Ordering::Greater => return Ok(None),
             Ordering::Less => continue,
         }
@@ -50,7 +50,10 @@ impl<'r> ReferenceBlock<'r> {
 impl<'r> ReferenceBlock<'r> {
     pub fn find_key_rb<'a, 'b>(&'a self, key: &[u8]) -> Result<Option<&'r [u8]>> {
         if let Some((start, end)) = find_key_offset(&self.buf, key)? {
-            self.buf.get(start..end).ok_or(INVALID_DATA).map(|v| Some(v))
+            self.buf
+                .get(start..end)
+                .ok_or(INVALID_DATA)
+                .map(|v| Some(v))
         } else {
             Ok(None)
         }
