@@ -72,6 +72,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         .unwrap();
 
     // Benchmark the full mmap implementation, that is thread safe.
+
     c.bench_function(
         &format!("full mmap,flush=4096 method=get items={}", items),
         |b| {
@@ -82,6 +83,24 @@ fn criterion_benchmark(c: &mut Criterion) {
                         let value = reader.get(key).unwrap();
                         assert_eq!(value, Some(key));
                     }
+                },
+                BatchSize::LargeInput,
+            );
+        },
+    );
+
+    c.bench_function(
+        &format!("full mmap,flush=4096 method=get_multithreaded items={}", items),
+        |b| {
+            b.iter_batched(
+                || MmapUncompressedSSTableReader::new(filename).unwrap(),
+                |reader| {
+                    use rayon::prelude::*;
+
+                    state.get_shuffled_input_ref().par_iter().for_each(|key| {
+                        let value = reader.get(key).unwrap();
+                        assert_eq!(value, Some(key as &[u8]));
+                    });
                 },
                 BatchSize::LargeInput,
             );
