@@ -65,6 +65,23 @@ fn criterion_benchmark(c: &mut Criterion) {
             .build()
     };
 
+    let filename = "/tmp/sstable";
+    state.write_sstable(filename, make_write_opts(Compression::None, 4096)).unwrap();
+
+    // Benchmark the full mmap implementation, that is thread safe.
+    c.bench_function(&format!("full mmap,flush=8192 method=get items={}", items), |b| {
+        b.iter_batched(
+            || MmapUncompressedSSTableReader::new(filename).unwrap(),
+            |reader| {
+                for key in state.get_shuffled_input() {
+                    let value = reader.get(key).unwrap();
+                    assert_eq!(value.map(|b| b.len()), Some(VALUE_LEN));
+                }
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
     for (prefix, write_opts, read_opts) in vec![
         (
             "mmap,compress=none,flush=4096,nocache",
@@ -128,7 +145,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     ]
     .into_iter()
     {
-        let filename = "/tmp/sstable";
+
         state.write_sstable(filename, write_opts).unwrap();
 
         // c.bench_function(&format!("{} test=open items={}", prefix, items), |b| {

@@ -59,6 +59,7 @@ pub mod writer;
 pub use reader::ReadCache;
 pub use reader::ReadOptions;
 pub use reader::SSTableReader;
+pub use reader::MmapUncompressedSSTableReader;
 
 use error::{Error, INVALID_DATA};
 
