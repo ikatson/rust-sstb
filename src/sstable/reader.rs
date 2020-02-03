@@ -302,10 +302,10 @@ impl InnerReader {
 }
 
 struct ThreadSafeInnerReader {
-    index: Box<dyn Index>,
+    index: Box<dyn Index + Sync + Send>,
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
-    page_cache: Box<dyn thread_safe_page_cache::TSPageCache>,
+    page_cache: Box<dyn thread_safe_page_cache::TSPageCache + Sync + Send>,
     meta: MetaV1_0,
     data_start: u64,
 }
@@ -337,7 +337,7 @@ impl ThreadSafeInnerReader {
             buf
         });
 
-        let index: Box<dyn Index> = match meta.compression {
+        let index: Box<dyn Index + Send + Sync> = match meta.compression {
             Compression::None => match mmap_buf {
                 Some(mmap) => Box::new(MemIndex::from_static_buf(
                     &mmap[index_start as usize..],
@@ -359,7 +359,7 @@ impl ThreadSafeInnerReader {
 
         let num_cpus = opts.thread_buckets.unwrap_or_else(|| num_cpus::get());
 
-        let pc: Box<dyn thread_safe_page_cache::TSPageCache> = match mmap_buf {
+        let pc: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> = match mmap_buf {
             Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
             None => Box::new(thread_safe_page_cache::FileBackedPageCache::new(
                 file,
@@ -368,7 +368,7 @@ impl ThreadSafeInnerReader {
             )),
         };
 
-        let uncompressed_cache: Box<dyn thread_safe_page_cache::TSPageCache> = match meta.compression {
+        let uncompressed_cache: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> = match meta.compression {
             Compression::None => pc,
             Compression::Zlib => {
                 let dec = compression::ZlibUncompress {};

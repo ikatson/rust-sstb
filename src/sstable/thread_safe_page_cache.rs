@@ -92,7 +92,7 @@ impl<PC, U> WrappedCache<PC, U> {
     }
 }
 
-impl TSPageCache for Box<dyn TSPageCache> {
+impl TSPageCache for Box<dyn TSPageCache + Send + Sync> {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         self.as_ref().get_chunk(offset, length)
     }

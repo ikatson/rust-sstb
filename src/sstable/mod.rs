@@ -281,16 +281,16 @@ mod tests {
     fn test_basic_sanity_threads(options: WriteOptions, filename: &str) {
         write_basic_map(filename, options);
 
-        let mut reader =
+        let reader =
             reader::ThreadSafeSSTableReader::new_with_options(filename, &reader::ReadOptions::default())
                 .unwrap();
 
         crossbeam::scope(|s| {
             s.spawn(|_| {
-                assert_eq!(reader.get(b"foo").unwrap().map(|v| v.as_ref()), Some(b"some foo" as &[u8]));
+                assert_eq!(reader.get(b"foo").unwrap().as_ref().map(|v| v.as_ref()), Some(b"some foo" as &[u8]));
             });
             s.spawn(|_| {
-                assert_eq!(reader.get(b"bar").unwrap().map(|v| v.as_ref()), Some(b"some bar" as &[u8]));
+                assert_eq!(reader.get(b"bar").unwrap().as_ref().map(|v| v.as_ref()), Some(b"some bar" as &[u8]));
             });
             s.spawn(|_| {
                 assert_eq!(reader.get(b"foobar").unwrap(), None);
