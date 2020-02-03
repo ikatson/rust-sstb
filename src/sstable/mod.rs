@@ -281,6 +281,22 @@ mod tests {
     }
 
     #[test]
+    fn test_mmap_uncompressed_basic_sanity() {
+        let filename = "/tmp/sstable_mmap_uncompressed";
+        let mut map = BTreeMap::new();
+        let mut options = WriteOptions::default();
+        options.compression = Compression::None;
+        map.insert(b"foo", b"some foo");
+        map.insert(b"bar", b"some bar");
+        write_btree_map(&map, filename, Some(options)).unwrap();
+
+        let reader = reader::MmapUncompressedSSTableReader::new(filename).unwrap();
+        assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
+        assert_eq!(reader.get(b"bar").unwrap(), Some(b"some bar" as &[u8]));
+        assert_eq!(reader.get(b"foobar").unwrap(), None);
+    }
+
+    #[test]
     fn test_compressed_with_zlib_basic_sanity() {
         let mut options = WriteOptions::default();
         options.compression = Compression::Zlib;
