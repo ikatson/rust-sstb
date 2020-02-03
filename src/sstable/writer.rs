@@ -50,7 +50,9 @@ impl SSTableWriterV1 {
                     writer, compression::ZlibCompressorFactory::new(None)
                 ))
             },
-            Compression::Snappy => {unimplemented!()}
+            Compression::Snappy => {Box::new(CompressionContextWriterImpl::new(
+                writer, compression::SnappyCompressorFactory::new()
+            ))}
         };
 
         Ok(Self {

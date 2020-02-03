@@ -1,21 +1,15 @@
 use super::Result;
 
 use std::io::{Read, Write, Cursor};
+use snap;
+use super::Error;
 
 pub trait CompressorFactory<W: Write, C: Compressor<W>> {
     fn from_writer(&self, writer: W) -> C;
 }
 
-pub trait DecompressorFactory<R: Read, D: Decompressor<R>> {
-    fn from_reader(&self, reader: R) -> D;
-}
-
 pub trait Compressor<W: Write>: Write {
     fn into_inner(self) -> Result<W>;
-}
-
-pub trait Decompressor<R: Read>: Read {
-    fn into_inner(self) -> Result<R>;
 }
 
 pub trait Uncompress {
@@ -32,13 +26,6 @@ pub struct ZlibCompressor<W: Write> {
     inner: flate2::write::ZlibEncoder<W>
 }
 
-pub struct ZlibDecompressorFactory<R: Read> {
-    marker: std::marker::PhantomData<R>
-}
-
-pub struct ZlibDecompressor<R: Read> {
-    inner: flate2::read::ZlibDecoder<R>
-}
 pub struct ZlibUncompress {}
 
 impl<W: Write> ZlibCompressor<W> {
@@ -78,32 +65,6 @@ impl<W: Write> CompressorFactory<W, ZlibCompressor<W>> for ZlibCompressorFactory
     }
 }
 
-impl<R: Read> ZlibDecompressor<R> {
-    pub fn new(reader: R) -> Self {
-        ZlibDecompressor{inner: flate2::read::ZlibDecoder::new(reader)}
-    }
-}
-impl <R: Read> Read for ZlibDecompressor<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.inner.read(buf)
-    }
-}
-impl <R: Read> Decompressor<R> for ZlibDecompressor<R> {
-    fn into_inner(self) -> Result<R> {
-        Ok(self.inner.into_inner())
-    }
-}
-impl <R: Read> DecompressorFactory<R, ZlibDecompressor<R>> for ZlibDecompressorFactory<R> {
-    fn from_reader(&self, reader: R) -> ZlibDecompressor<R> {
-        ZlibDecompressor::new(reader)
-    }
-}
-impl <R: Read> ZlibDecompressorFactory<R> {
-    pub fn new() -> Self {
-        ZlibDecompressorFactory{marker: std::marker::PhantomData{}}
-    }
-}
-
 impl Uncompress for ZlibUncompress {
     fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
         let mut dec = flate2::read::ZlibDecoder::new(Cursor::new(buf));
@@ -115,7 +76,60 @@ impl Uncompress for ZlibUncompress {
     }
 }
 
+
+/// Snappy
+pub struct SnappyCompressorFactory<W: Write> {
+    marker: std::marker::PhantomData<W>
+}
+
+pub struct SnappyCompressor<W: Write> {
+    inner: snap::Writer<W>
+}
+
+
+impl<W: Write> SnappyCompressor<W> {
+    pub fn new(writer: W) -> Self {
+        Self{inner: snap::Writer::new(writer)}
+    }
+}
+
 pub struct SnappyUncompress {}
+
+impl<W: Write> Write for SnappyCompressor<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<W: Write> Compressor<W> for SnappyCompressor<W> {
+    fn into_inner(self) -> Result<W> {
+        self.inner.into_inner().map_err(|e| {
+            let kind = e.error().kind();
+            let io = std::io::Error::from(kind);
+            Error::from(io)
+        })
+    }
+}
+
+impl <W: Write> SnappyCompressorFactory<W> {
+    pub fn new() -> Self {
+        Self{
+            marker: std::marker::PhantomData{}
+        }
+    }
+}
+
+impl<W: Write> CompressorFactory<W, SnappyCompressor<W>> for SnappyCompressorFactory<W> {
+    fn from_writer(&self, writer: W) -> SnappyCompressor<W> {
+        SnappyCompressor::new(writer)
+    }
+}
+
+
 
 impl Uncompress for SnappyUncompress {
     fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
