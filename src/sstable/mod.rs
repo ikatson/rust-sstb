@@ -43,7 +43,6 @@ type OffsetLength = u64;
 const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KeyLength>();
 const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
 
-
 const OFFSET_SIZE: usize = core::mem::size_of::<OffsetLength>();
 
 mod compression;
@@ -239,10 +238,6 @@ impl Default for WriteOptions {
     }
 }
 
-pub fn open<P: AsRef<Path>>(_filename: P) -> reader::SSTableReader {
-    unimplemented!()
-}
-
 pub fn write_btree_map<K: AsRef<[u8]>, V: AsRef<[u8]>, P: AsRef<Path>>(
     map: &BTreeMap<K, V>,
     filename: P,
@@ -274,19 +269,18 @@ mod tests {
                 .unwrap();
 
         assert_eq!(
-            reader.get(b"foo").unwrap().as_ref().map(|v| v.as_bytes()),
+            reader.get(b"foo").unwrap(),
             Some(b"some foo" as &[u8])
         );
         assert_eq!(
-            reader.get(b"bar").unwrap().as_ref().map(|v| v.as_bytes()),
+            reader.get(b"bar").unwrap(),
             Some(b"some bar" as &[u8])
         );
         assert_eq!(
             reader
                 .get(b"foobar")
                 .unwrap()
-                .as_ref()
-                .map(|v| v.as_bytes()),
+                ,
             None
         );
     }

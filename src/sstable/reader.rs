@@ -11,35 +11,6 @@ use super::*;
 
 use lru::LruCache;
 
-#[derive(Debug, PartialEq)]
-pub enum GetResult<'a> {
-    Ref(&'a [u8]),
-    Owned(Vec<u8>),
-}
-
-impl<'a> GetResult<'a> {
-    pub fn as_bytes(&self) -> &[u8] {
-        use GetResult::*;
-        match self {
-            Ref(b) => b,
-            Owned(b) => b,
-        }
-    }
-    pub fn len(&self) -> usize {
-        use GetResult::*;
-        match self {
-            Ref(b) => b.len(),
-            Owned(b) => b.len(),
-        }
-    }
-}
-
-impl<'a> AsRef<[u8]> for GetResult<'a> {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
 enum MetaData {
     V1_0(MetaV1_0),
 }
@@ -313,7 +284,7 @@ impl InnerReader {
         });
     }
 
-    fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>> {
+    fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
         let index_start = self.data_start + self.meta.data_len as u64;
         let (offset, right_bound) = match self.index.find_bounds(key, index_start) {
             Some(v) => v,
@@ -323,7 +294,7 @@ impl InnerReader {
         let chunk = self.page_cache.get_chunk(offset, right_bound - offset)?;
         let block = block_reader::ReferenceBlock::new(chunk);
         let found = block.find_key_rb(key)?;
-        Ok(found.map(|v| GetResult::Ref(v)))
+        Ok(found)
     }
 }
 
@@ -339,7 +310,7 @@ impl SSTableReader {
         let inner = InnerReader::new(file, data_start, meta, opts)?;
         Ok(SSTableReader { inner: inner })
     }
-    pub fn get(&mut self, key: &[u8]) -> Result<Option<GetResult>> {
+    pub fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
         self.inner.get(key)
     }
 }

@@ -1,4 +1,4 @@
-use std::io::{Read, Seek, SeekFrom, Cursor};
+use std::io::{Read, Seek, SeekFrom};
 
 use lru::LruCache;
 use super::{Result, error, reader};

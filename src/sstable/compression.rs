@@ -76,7 +76,6 @@ impl Uncompress for ZlibUncompress {
     }
 }
 
-
 /// Snappy
 pub struct SnappyCompressorFactory<W: Write> {
     marker: std::marker::PhantomData<W>
@@ -128,8 +127,6 @@ impl<W: Write> CompressorFactory<W, SnappyCompressor<W>> for SnappyCompressorFac
         SnappyCompressor::new(writer)
     }
 }
-
-
 
 impl Uncompress for SnappyUncompress {
     fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
