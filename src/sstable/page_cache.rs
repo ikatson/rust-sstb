@@ -2,6 +2,7 @@ use std::io::{Read, Seek, SeekFrom, Cursor};
 
 use lru::LruCache;
 use super::{Result, error, reader};
+use super::compression::Uncompress;
 
 pub trait PageCache {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]>;
@@ -70,38 +71,6 @@ impl<PC, U> WrappedCache<PC, U> {
         }
     }
 }
-
-pub trait Uncompress {
-    fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>>;
-}
-
-// TODO: put all compressors/decompressors under generic encoder/decoder API.
-pub struct ZlibUncompress {}
-
-impl Uncompress for ZlibUncompress {
-    fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
-        let mut dec = flate2::read::ZlibDecoder::new(Cursor::new(buf));
-        // TODO: buf.len() here is a bad heuristic. Need the real number, this can be pulled during
-        // compression.
-        let mut buf = Vec::with_capacity(buf.len());
-        dec.read_to_end(&mut buf)?;
-        Ok(buf)
-    }
-}
-
-pub struct SnappyUncompress {}
-
-impl Uncompress for SnappyUncompress {
-    fn uncompress(&self, buf: &[u8]) -> Result<Vec<u8>> {
-        let mut dec = snap::Reader::new(Cursor::new(buf));
-        // TODO: buf.len() here is a bad heuristic. Need the real number, this can be pulled during
-        // compression.
-        let mut buf = Vec::with_capacity(buf.len());
-        dec.read_to_end(&mut buf)?;
-        Ok(buf)
-    }
-}
-
 
 impl PageCache for Box<dyn PageCache> {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]> {

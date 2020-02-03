@@ -46,6 +46,7 @@ const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
 
 const OFFSET_SIZE: usize = core::mem::size_of::<OffsetLength>();
 
+mod compression;
 mod block_reader;
 mod compress_ctx_writer;
 pub mod error;

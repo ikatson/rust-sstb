@@ -291,13 +291,13 @@ impl InnerReader {
         let uncompressed_cache: Box<dyn page_cache::PageCache> = match meta.compression {
             Compression::None => pc,
             Compression::Zlib => {
-                let dec = page_cache::ZlibUncompress{};
+                let dec = compression::ZlibUncompress{};
                 let cache = opts.cache.clone().unwrap_or(ReadCache::default());
                 let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
                 Box::new(wrapped)
             },
             Compression::Snappy => {
-                let dec = page_cache::SnappyUncompress{};
+                let dec = compression::SnappyUncompress{};
                 let cache = opts.cache.clone().unwrap_or(ReadCache::default());
                 let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
                 Box::new(wrapped)
