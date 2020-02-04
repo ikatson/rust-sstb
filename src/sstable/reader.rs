@@ -1,3 +1,5 @@
+//! SSTable reading facilities.
+
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -156,6 +158,10 @@ impl Index for OwnedIndex {
     }
 }
 
+/// The default single-threaded reader for sstables.
+///
+/// As the get() method takes a mutable reference, you will not be able to use this in
+/// multiple threads.
 pub struct SSTableReader {
     inner: InnerReader,
 }
@@ -397,6 +403,14 @@ impl SSTableReader {
     }
 }
 
+/// A thread-safe multi-threaded reader.
+///
+/// There is internal mutability inside. The LRU caches are sharded into multiple locks.
+///
+/// You get `Bytes` references in return instead of slices, so that atomic reference counting
+/// can happen behind the scenes for properly tracking chunks still in-use.
+///
+/// If you want to use this with multiple threads just put it into an `Arc` without Mutex'es.
 pub struct ThreadSafeSSTableReader {
     inner: ThreadSafeInnerReader,
 }
@@ -418,6 +432,15 @@ impl ThreadSafeSSTableReader {
     }
 }
 
+/// A multi-threaded reader that only works with fully uncompressed data.
+///
+/// There is no locking happening inside, there is no internal mutability either.
+/// Everything just relies on the OS page cache to work, so if you are ok with storing
+/// uncompressed sstables, this reader the way to go.
+///
+/// If you try to use it with a compressed sstable it will return `Error::CantUseCompressedFileWithMultiThreadedMmap`
+///
+/// If you want to use this with multiple threads just put it into an Arc without Mutex'es.
 pub struct MmapUncompressedSSTableReader {
     index_start: u64,
     mmap: memmap::Mmap,
@@ -425,6 +448,8 @@ pub struct MmapUncompressedSSTableReader {
 }
 
 impl MmapUncompressedSSTableReader {
+    /// Construct a new mmap reader from a file.
+    /// Returns `Error::CantUseCompressedFileWithMultiThreadedMmap` if you try to open a compressed file with it.
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
         let mut file = File::open(filename)?;
         let meta = read_metadata(&mut file)?;
@@ -459,6 +484,8 @@ impl MmapUncompressedSSTableReader {
             index_start,
         })
     }
+
+    /// Get a key from the sstable.
     pub fn get<'a, 'b>(&'a self, key: &'b [u8]) -> Result<Option<&'a [u8]>> {
         let (offset, right_bound) = match self.index.find_bounds(key, self.index_start) {
             Some(v) => v,

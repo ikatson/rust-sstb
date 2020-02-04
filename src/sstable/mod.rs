@@ -1,28 +1,19 @@
-// Design
-//
-// The sstables are written from BTrees, or some sorted iterators.
-// Actually, sorted key value iterators are the best.
-// keys are strings, values are byte slices.
-
-// Readers CAN be mmap'ed files.
-// However, in this case you can't GZIP.
-// file-system level gzip would work best here.
-
-// Writers can use buffered file API.
-
-// So we better implement various ways with the same API
-//
-// Variants:
-// gzip OR some other compression OR no compression
-// memmap readers or not
-//
-// File structure:
-// [MAGIC][VERSION][META][DATA][INDEX]
-// META is the struct of format
-// Magic is \x80LSM
-//
-// index structure
-//
+//! Implementations of sstables stored as files on disk.
+//!
+//! Single and multi-threaded SSTable readers, single-threaded writer.
+//!
+//! For writing sstables look at the `writer` module.
+//!
+//! There is a also a convenience function `write_btree_map`.
+//!
+//! For reading sstables, there are multiple implementations with tradeoffs.
+//!
+//! For example, the simplest and thread-safe implementation of a reader is
+//! `MmapUncompressedSSTableReader`. But it only works with uncompressed files.
+//!
+//! Also if the tables are larger than memory, mmap may start causing issues, although that
+//! needs to be measured on the target setup.
+//!
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -59,6 +50,23 @@ pub use error::{Error, INVALID_DATA};
 pub use options::*;
 pub use types::*;
 
+
+/// A convenience function to write a btree map to a file.
+///
+///
+/// Example:
+/// ```
+/// use std::collections::BTreeMap;
+/// use lsm::sstable::{write_btree_map, WriteOptions};
+///
+/// let mut map = BTreeMap::new();
+/// let filename = "/tmp/some-sstable";
+/// let write_options = WriteOptions::default();
+///
+/// map.insert(b"foo", b"some foo");
+/// map.insert(b"bar", b"some bar");
+/// write_btree_map(&map, filename, Some(write_options)).unwrap();
+/// ```
 pub fn write_btree_map<K: AsRef<[u8]>, V: AsRef<[u8]>, P: AsRef<Path>>(
     map: &BTreeMap<K, V>,
     filename: P,

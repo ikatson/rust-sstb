@@ -1,3 +1,5 @@
+//! SSTable writing facilities.
+
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::{Seek, SeekFrom, Write};
@@ -15,6 +17,7 @@ use super::result::Result;
 use super::types::*;
 
 
+/// Represents an SSTable writer.
 pub trait RawSSTableWriter {
     /// Set the key to the value. This method MUST be called in the sorted
     /// order.
@@ -26,6 +29,16 @@ pub trait RawSSTableWriter {
 }
 
 /// SSTableWriterV1 writes SSTables to disk.
+///
+/// ```
+/// use lsm::sstable::{SSTableWriterV1, RawSSTableWriter};
+/// let mut writer = SSTableWriterV1::new("/tmp/some-sstable").unwrap();
+///
+/// // Note that keys MUST be in sorted order.
+/// writer.set(b"aaa", b"some value for aaa");
+/// writer.set(b"zzz", b"some value for zzz");
+/// writer.finish().unwrap();
+/// ```
 pub struct SSTableWriterV1 {
     file: PosWriter<Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>>>,
     meta: MetaV1_0,

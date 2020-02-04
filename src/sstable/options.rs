@@ -2,6 +2,7 @@ use super::types::Compression;
 
 use lru::LruCache;
 
+/// Options for writing sstables.
 #[derive(Debug, Copy, Clone)]
 pub struct WriteOptions {
     pub compression: Compression,
@@ -26,8 +27,11 @@ impl Default for WriteOptions {
     }
 }
 
+/// The builder for `WriteOptions`
 pub struct WriteOptionsBuilder {
+    /// Compression to use. The default is None.
     pub compression: Compression,
+    /// How often to store the records in the index.
     pub flush_every: usize,
 }
 
@@ -61,9 +65,12 @@ impl Default for WriteOptionsBuilder {
     }
 }
 
+/// Configures the caches for reading.
 #[derive(Copy, Clone, Debug)]
 pub enum ReadCache {
+    // How many chunks(blocks) to store in LRU.
     Blocks(usize),
+    // Unbounded cache, the default.
     Unbounded,
 }
 
@@ -85,6 +92,7 @@ impl Default for ReadCache {
     }
 }
 
+/// A builder for `ReadOptions`
 pub struct ReadOptionsBuilder {
     pub cache: Option<ReadCache>,
     pub use_mmap: bool,
@@ -127,10 +135,15 @@ impl Default for ReadOptionsBuilder {
     }
 }
 
+/// Options for reading sstables.
 #[derive(Copy, Clone, Debug)]
 pub struct ReadOptions {
+    /// The caching strategy to use.
     pub cache: Option<ReadCache>,
+    /// If mmap can be used for reading the sstable from disk.
     pub use_mmap: bool,
+    /// How many buckets to split the caches into for efficient
+    /// thread-safe access.
     pub thread_buckets: Option<usize>,
 }
 
