@@ -8,6 +8,8 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use std::iter::Iterator;
 
+use rayon::prelude::*;
+
 struct TestState {
     sorted_iter: SortedBytesIterator,
     shuffled: Vec<Vec<u8>>,
@@ -98,8 +100,6 @@ fn criterion_benchmark(c: &mut Criterion) {
             b.iter_batched(
                 || MmapUncompressedSSTableReader::new(filename).unwrap(),
                 |reader| {
-                    use rayon::prelude::*;
-
                     state.get_shuffled_input_ref().par_iter().for_each(|key| {
                         let value = reader.get(key).unwrap();
                         assert_eq!(value, Some(key as &[u8]));
@@ -172,7 +172,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 b.iter_batched(
                     || ThreadSafeSSTableReader::new_with_options(filename, &read_opts).unwrap(),
                     |reader| {
-                        use rayon::prelude::*;
+
 
                         state.get_shuffled_input_ref().par_iter().for_each(|key| {
                             let value = reader.get(key).unwrap();

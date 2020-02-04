@@ -12,7 +12,7 @@ serde = {version = "*", features = ["derive"]}
 flate2 = "^1"
 lru = "^0.4"
 byteorder = "^1"
-bytes = "*"
+bytes = "^0.5.4"
 snap = "^0.2"
 nix = "^0.5"
 parking_lot = "^0.10"
