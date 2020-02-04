@@ -153,7 +153,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     {
         state.write_sstable(filename, write_opts).unwrap();
 
-        c.bench_function(&format!("{} test=get items={}", prefix, items), |b| {
+        c.bench_function(&format!("{},test=get,items={}", prefix, items), |b| {
             b.iter_batched(
                 || SSTableReader::new_with_options(filename, &read_opts).unwrap(),
                 |mut reader| {
@@ -167,7 +167,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         });
 
         c.bench_function(
-            &format!("{} test=get_multithreaded items={}", prefix, items),
+            &format!("{},test=get_multithreaded,items={}", prefix, items),
             |b| {
                 b.iter_batched(
                     || ThreadSafeSSTableReader::new_with_options(filename, &read_opts).unwrap(),
