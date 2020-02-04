@@ -130,7 +130,15 @@ fn criterion_benchmark(c: &mut Criterion) {
                 .build(),
         ),
         (
-            "no_mmap,compress=snappy,flush=65536,cache=unbounded",
+            "mmap,compress=snappy,flush=8192,cache=unbounded",
+            make_write_opts(Compression::Snappy, 8192),
+            ReadOptions::builder()
+                .cache(Some(ReadCache::Unbounded))
+                .use_mmap(true)
+                .build(),
+        ),
+        (
+            "no_mmap,compress=snappy,flush=8192,cache=unbounded",
             make_write_opts(Compression::Snappy, 8192),
             ReadOptions::builder()
                 .cache(Some(ReadCache::Unbounded))
