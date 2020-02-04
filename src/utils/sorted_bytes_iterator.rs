@@ -7,7 +7,7 @@ use crate::sstable::{Error, Result};
 /// An iterator-like object that yields byte slices in sorted order.
 ///
 /// ```rust
-/// use lsm::utils::SortedBytesIterator;
+/// use sstb::utils::SortedBytesIterator;
 /// let mut iter = SortedBytesIterator::new_first_last(3, b'a', b'c', 0).unwrap();
 
 /// assert_eq!(iter.next(), Some(b"aaa" as &[u8]));

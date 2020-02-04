@@ -31,7 +31,7 @@ pub trait RawSSTableWriter {
 /// SSTableWriterV1 writes SSTables to disk.
 ///
 /// ```
-/// use lsm::sstable::{SSTableWriterV1, RawSSTableWriter};
+/// use sstb::sstable::{SSTableWriterV1, RawSSTableWriter};
 /// let mut writer = SSTableWriterV1::new("/tmp/some-sstable").unwrap();
 ///
 /// // Note that keys MUST be in sorted order.

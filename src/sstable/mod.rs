@@ -57,7 +57,7 @@ pub use types::*;
 /// Example:
 /// ```
 /// use std::collections::BTreeMap;
-/// use lsm::sstable::{write_btree_map, WriteOptions};
+/// use sstb::sstable::{write_btree_map, WriteOptions};
 ///
 /// let mut map = BTreeMap::new();
 /// let filename = "/tmp/some-sstable";

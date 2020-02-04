@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use lsm::sstable::*;
-use lsm::utils::SortedBytesIterator;
+use crate::sstable::*;
+use crate::utils::SortedBytesIterator;
 
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;

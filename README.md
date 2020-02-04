@@ -1,5 +1,6 @@
 # TODO
 - [x] u32 keys and values, not u64
+- [ ] bloom filters on disk
 - [ ] writing "flush_every"'s default should depend on the default compression.
 - [ ] read cache size configurable both for page cache and for uncompressed cache
 - [ ] read cache size should be in bytes, not blocks
