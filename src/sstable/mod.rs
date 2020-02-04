@@ -54,10 +54,8 @@ pub use reader::ThreadSafeSSTableReader;
 pub use writer::RawSSTableWriter;
 pub use writer::SSTableWriterV1;
 
-use error::{Error, INVALID_DATA};
-
-// re-exports
 pub use result::Result;
+pub use error::{Error, INVALID_DATA};
 pub use options::*;
 pub use types::*;
 

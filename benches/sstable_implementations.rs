@@ -17,7 +17,7 @@ struct TestState {
 
 impl TestState {
     fn new(len: usize, limit: usize) -> Self {
-        let mut it = SortedBytesIterator::new(len, limit);
+        let mut it = SortedBytesIterator::new(len, limit).unwrap();
         let shuffled = {
             let mut shuffled: Vec<Vec<u8>> = Vec::with_capacity(limit);
             while let Some(value) = it.next() {

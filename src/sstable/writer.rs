@@ -113,11 +113,13 @@ impl SSTableWriterV1 {
 }
 
 impl RawSSTableWriter for SSTableWriterV1 {
+    #[allow(clippy::collapsible_if)]
     fn set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         // If the current offset is too high, flush, and add this record to the index.
         //
         // Also reset the compression to a fresh state.
         let approx_msg_len = key.len() + 5 + value.len();
+
         if self.meta.items == 0 {
             self.sparse_index.push((key.to_owned(), self.data_start));
         } else {

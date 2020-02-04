@@ -176,6 +176,7 @@ impl InnerReader {
         meta: MetaResult,
         opts: &ReadOptions,
     ) -> Result<Self> {
+        #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };
@@ -281,6 +282,7 @@ impl ThreadSafeInnerReader {
         meta: MetaResult,
         opts: &ReadOptions,
     ) -> Result<Self> {
+        #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };
@@ -428,6 +430,7 @@ impl MmapUncompressedSSTableReader {
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
 
+        #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
             MetaData::V1_0(meta) => meta,
         };

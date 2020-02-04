@@ -1,6 +1,9 @@
 const FIRST: u8 = b'a';
 const LAST: u8 = b'z';
 
+// Todo use the crate's result instead.
+use crate::sstable::{Error, Result};
+
 pub struct SortedBytesIterator {
     buf: Vec<u8>,
     // points to the element being made larger.
@@ -13,12 +16,20 @@ pub struct SortedBytesIterator {
 
 impl Clone for SortedBytesIterator {
     fn clone(&self) -> Self {
-        Self::new_first_last(self.buf.len(), self.first, self.last, self.limit)
+        let length = self.buf.len();
+        Self{
+            buf: core::iter::repeat(self.first).take(length).collect(),
+            current: length,
+            first: self.first,
+            last: self.last,
+            counter: 0,
+            limit: self.limit,
+        }
     }
 }
 
 impl SortedBytesIterator {
-    pub fn new(length: usize, limit: usize) -> Self {
+    pub fn new(length: usize, limit: usize) -> Result<Self> {
         Self::new_first_last(length, FIRST, LAST, limit)
     }
     pub fn reset(&mut self) {
@@ -28,20 +39,25 @@ impl SortedBytesIterator {
         self.current = self.buf.len();
         self.counter = 0;
     }
-    pub fn new_first_last(length: usize, first: u8, last: u8, limit: usize) -> Self {
-        assert!(length > 0);
-        assert!(last > first);
+    pub fn new_first_last(length: usize, first: u8, last: u8, limit: usize) -> Result<Self> {
+        if length == 0 {
+            return Err(Error::ProgrammingError("length should be greater than 0"))
+        }
+        if last <= first {
+            return Err(Error::ProgrammingError("expected last > first"))
+        }
         let buf = core::iter::repeat(first).take(length).collect();
-        Self {
+        Ok(Self {
             buf,
             current: length,
             first,
             last,
             counter: 0,
             limit,
-        }
+        })
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<&[u8]> {
         let buflen = self.buf.len();
         if self.limit > 0 && self.counter == self.limit {
@@ -77,7 +93,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_sequence() {
-        let mut iter = SortedBytesIterator::new_first_last(3, b'a', b'c', 0);
+        let mut iter = SortedBytesIterator::new_first_last(3, b'a', b'c', 0).unwrap();
 
         assert_eq!(iter.next(), Some(b"aaa" as &[u8]));
         assert_eq!(iter.next(), Some(b"aab" as &[u8]));

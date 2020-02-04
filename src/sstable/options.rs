@@ -55,6 +55,12 @@ impl WriteOptionsBuilder {
     }
 }
 
+impl Default for WriteOptionsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum ReadCache {
     Blocks(usize),
@@ -112,6 +118,12 @@ impl ReadOptionsBuilder {
             use_mmap: self.use_mmap,
             thread_buckets: self.thread_buckets,
         }
+    }
+}
+
+impl Default for ReadOptionsBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

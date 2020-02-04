@@ -1,6 +1,6 @@
 #![warn(
-    // clippy::all,
-    // clippy::perf,
+    clippy::all,
+    clippy::perf,
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -8,10 +8,6 @@
 
     // clippy::restriction,
     // clippy::pedantic,
-
-
-
-
     // clippy::nursery,
     // clippy::cargo,
 )]
