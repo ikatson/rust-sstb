@@ -14,6 +14,7 @@ pub enum Error {
     KeyTooLong(usize),
     ValueTooLong(usize),
     StdStringFromUtf8Error(std::string::FromUtf8Error),
+    TryFromInt(std::num::TryFromIntError),
     NixError(nix::Error),
 }
 
@@ -44,5 +45,11 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<nix::Error> for Error {
     fn from(e: nix::Error) -> Self {
         Error::NixError(e)
+    }
+}
+
+impl From<std::num::TryFromIntError> for Error {
+    fn from(e: std::num::TryFromIntError) -> Self {
+        Error::TryFromInt(e)
     }
 }

@@ -49,8 +49,8 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     file.seek(SeekFrom::Start(offset as u64))?;
 
     Ok(MetaResult {
-        meta: meta,
-        offset: offset,
+        meta,
+        offset,
     })
 }
 
@@ -100,7 +100,7 @@ impl MemIndex {
 
         let kvoffset_encoded_size = KVOffset::encoded_size();
 
-        while index_data.len() > 0 {
+        while !index_data.is_empty() {
             let kvoffset = bincode::deserialize::<KVOffset>(
                 index_data
                     .get(..kvoffset_encoded_size)
@@ -118,7 +118,7 @@ impl MemIndex {
             index_data = &index_data[key_end..];
         }
 
-        Ok(Self { index: index })
+        Ok(Self { index })
     }
 }
 
@@ -146,7 +146,7 @@ impl OwnedIndex {
             reader.read_exact(&mut key)?;
             index.insert(key, kvoffset.offset);
         }
-        Ok(Self { index: index })
+        Ok(Self { index })
     }
 }
 
@@ -199,6 +199,8 @@ impl InnerReader {
         let index: Box<dyn Index> = match meta.compression {
             Compression::None => match mmap_buf {
                 Some(mmap) => Box::new(MemIndex::from_static_buf(
+                    // if it was mmaped, it won't truncate
+                    #[allow(clippy::cast_possible_truncation)]
                     &mmap[index_start as usize..],
                     meta.index_len,
                 )?),
@@ -220,7 +222,7 @@ impl InnerReader {
             Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
             None => Box::new(page_cache::ReadPageCache::new(
                 file,
-                opts.cache.clone().unwrap_or(ReadCache::default()),
+                opts.cache.clone().unwrap_or_default(),
             )),
         };
 
@@ -228,25 +230,25 @@ impl InnerReader {
             Compression::None => pc,
             Compression::Zlib => {
                 let dec = compression::ZlibUncompress {};
-                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                let cache = opts.cache.clone().unwrap_or_default();
                 let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
                 Box::new(wrapped)
             }
             Compression::Snappy => {
                 let dec = compression::SnappyUncompress {};
-                let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                let cache = opts.cache.clone().unwrap_or_default();
                 let wrapped = page_cache::WrappedCache::new(pc, dec, cache);
                 Box::new(wrapped)
             }
         };
 
-        return Ok(Self {
+        Ok(Self {
             _mmap: mmap,
-            index: index,
+            index,
             page_cache: uncompressed_cache,
-            data_start: data_start,
-            meta: meta,
-        });
+            data_start,
+            meta,
+        })
     }
 
     fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
@@ -302,6 +304,8 @@ impl ThreadSafeInnerReader {
         let index: Box<dyn Index + Send + Sync> = match meta.compression {
             Compression::None => match mmap_buf {
                 Some(mmap) => Box::new(MemIndex::from_static_buf(
+                    // if it was mmaped, it won't truncate
+                    #[allow(clippy::cast_possible_truncation)]
                     &mmap[index_start as usize..],
                     meta.index_len,
                 )?),
@@ -319,13 +323,13 @@ impl ThreadSafeInnerReader {
             }
         };
 
-        let num_cpus = opts.thread_buckets.unwrap_or_else(|| num_cpus::get());
+        let num_cpus = opts.thread_buckets.unwrap_or_else(num_cpus::get);
 
         let pc: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> = match mmap_buf {
             Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
             None => Box::new(thread_safe_page_cache::FileBackedPageCache::new(
                 file,
-                opts.cache.clone().unwrap_or(ReadCache::default()),
+                opts.cache.clone().unwrap_or_default(),
                 num_cpus,
             )),
         };
@@ -335,27 +339,27 @@ impl ThreadSafeInnerReader {
                 Compression::None => pc,
                 Compression::Zlib => {
                     let dec = compression::ZlibUncompress {};
-                    let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                    let cache = opts.cache.clone().unwrap_or_default();
                     let wrapped =
                         thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
                 Compression::Snappy => {
                     let dec = compression::SnappyUncompress {};
-                    let cache = opts.cache.clone().unwrap_or(ReadCache::default());
+                    let cache = opts.cache.clone().unwrap_or_default();
                     let wrapped =
                         thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
             };
 
-        return Ok(Self {
+        Ok(Self {
             _mmap: mmap,
-            index: index,
+            index,
             page_cache: uncompressed_cache,
-            data_start: data_start,
-            meta: meta,
-        });
+            data_start,
+            meta,
+        })
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
@@ -384,7 +388,7 @@ impl SSTableReader {
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
         let inner = InnerReader::new(file, data_start, meta, opts)?;
-        Ok(SSTableReader { inner: inner })
+        Ok(SSTableReader { inner })
     }
     pub fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
         self.inner.get(key)
@@ -405,7 +409,7 @@ impl ThreadSafeSSTableReader {
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
         let inner = ThreadSafeInnerReader::new(file, data_start, meta, opts)?;
-        Ok(Self { inner: inner })
+        Ok(Self { inner })
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         self.inner.get(key)
@@ -443,18 +447,23 @@ impl MmapUncompressedSSTableReader {
             buf
         };
 
+        // if it was mmaped, it won't truncate
+        #[allow(clippy::cast_possible_truncation)]
         let index = MemIndex::from_static_buf(&mmap_buf[index_start as usize..], meta.index_len)?;
-        return Ok(Self {
+        Ok(Self {
             mmap,
             index,
             index_start,
-        });
+        })
     }
     pub fn get<'a, 'b>(&'a self, key: &'b [u8]) -> Result<Option<&'a [u8]>> {
         let (offset, right_bound) = match self.index.find_bounds(key, self.index_start) {
             Some(v) => v,
             None => return Ok(None),
         };
+
+        // if it was mmaped, it won't truncate
+        #[allow(clippy::cast_possible_truncation)]
         let block =
             block_reader::ReferenceBlock::new(&self.mmap[offset as usize..right_bound as usize]);
         let found = block.find_key_rb(key)?;

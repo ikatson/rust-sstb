@@ -15,7 +15,7 @@ pub struct StaticBufCache {
 
 impl StaticBufCache {
     pub fn new(buf: &'static [u8]) -> Self {
-        Self { buf: buf }
+        Self { buf }
     }
     pub fn get_buf(&self) -> &'static [u8] {
         self.buf
@@ -24,6 +24,8 @@ impl StaticBufCache {
 
 impl PageCache for StaticBufCache {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]> {
+        // if this was mmaped, there will be no truncation.
+        #[allow(clippy::cast_possible_truncation)]
         self.buf
             .get(offset as usize..(offset + length) as usize)
             .ok_or(error::INVALID_DATA)
@@ -38,7 +40,7 @@ pub struct ReadPageCache<R> {
 impl<R> ReadPageCache<R> {
     pub fn new(reader: R, cache: ReadCache) -> Self {
         Self {
-            reader: reader,
+            reader,
             cache: cache.lru(),
         }
     }
@@ -49,6 +51,8 @@ impl<R: Read + Seek> PageCache for ReadPageCache<R> {
         match self.cache.get(&offset) {
             Some(bytes) => Ok(unsafe { &*(bytes as &[u8] as *const [u8]) }),
             None => {
+                // if this was mmaped, there will be no truncation.
+                #[allow(clippy::cast_possible_truncation)]
                 let mut buf = vec![0; length as usize];
                 self.reader.seek(SeekFrom::Start(offset))?;
                 self.reader.read_exact(&mut buf)?;
@@ -68,9 +72,9 @@ pub struct WrappedCache<PC, U> {
 impl<PC, U> WrappedCache<PC, U> {
     pub fn new(inner: PC, uncompress: U, cache: ReadCache) -> Self {
         Self {
-            inner: inner,
+            inner,
             cache: cache.lru(),
-            uncompress: uncompress,
+            uncompress,
         }
     }
 }

@@ -55,6 +55,8 @@ impl TSLRUCache {
     {
         let mut hasher = DefaultHasher::new();
         offset.hash(&mut hasher);
+        // it's ok to truncate the hash.
+        #[allow(clippy::cast_possible_truncation)]
         let hash = hasher.finish() as usize;
         let idx = hash % self.caches.len();
 

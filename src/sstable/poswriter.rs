@@ -9,8 +9,8 @@ pub struct PosWriter<W> {
 impl<W> PosWriter<W> {
     pub fn new(w: W, offset: usize) -> Self {
         PosWriter {
-            w: w,
-            offset: offset,
+            w,
+            offset,
         }
     }
     pub fn current_offset(&self) -> usize {

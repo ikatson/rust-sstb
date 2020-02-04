@@ -44,7 +44,7 @@ impl SSTableWriterV1 {
     pub fn new_with_options<P: AsRef<Path>>(path: P, options: WriteOptions) -> Result<Self> {
         let file = File::create(path)?;
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
-        writer.write(MAGIC)?;
+        writer.write_all(MAGIC)?;
 
         bincode::serialize_into(&mut writer, &VERSION_10)?;
 
@@ -74,9 +74,9 @@ impl SSTableWriterV1 {
             // TODO: this cast is safe, however concerning...
             // maybe PosWriter should be u64 instead of usize?
             file: PosWriter::new(file, data_start as usize),
-            meta: meta,
-            meta_start: meta_start,
-            data_start: data_start,
+            meta,
+            meta_start,
+            data_start,
             flush_every: options.flush_every,
             sparse_index: Vec::new(),
         })
@@ -89,8 +89,8 @@ impl SSTableWriterV1 {
                 mut meta,
                 meta_start,
                 data_start,
-                flush_every: _,
                 sparse_index,
+                ..
             } => {
                 let mut writer = file.into_inner();
                 let index_start = self.data_start + writer.reset_compression_context()? as u64;

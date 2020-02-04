@@ -35,7 +35,7 @@ pub fn find_key_offset(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>>
             Ordering::Less => continue,
         }
     }
-    return Ok(None);
+    Ok(None)
 }
 
 pub struct ReferenceBlock<'a> {
@@ -49,12 +49,12 @@ impl<'r> ReferenceBlock<'r> {
 }
 
 impl<'r> ReferenceBlock<'r> {
-    pub fn find_key_rb<'a, 'b>(&'a self, key: &[u8]) -> Result<Option<&'r [u8]>> {
+    pub fn find_key_rb<'a>(&'a self, key: &[u8]) -> Result<Option<&'r [u8]>> {
         if let Some((start, end)) = find_key_offset(&self.buf, key)? {
             self.buf
                 .get(start..end)
                 .ok_or(INVALID_DATA)
-                .map(|v| Some(v))
+                .map(Some)
         } else {
             Ok(None)
         }

@@ -9,8 +9,8 @@ pub struct PosReader<R> {
 impl<R> PosReader<R> {
     pub fn new(r: R, offset: usize) -> Self {
         PosReader {
-            r: r,
-            offset: offset,
+            r,
+            offset,
         }
     }
     pub fn current_offset(&self) -> usize {

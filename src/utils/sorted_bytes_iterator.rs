@@ -68,7 +68,7 @@ impl SortedBytesIterator {
             }
         }
         self.counter += 1;
-        return Some(&self.buf);
+        Some(&self.buf)
     }
 }
 

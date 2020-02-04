@@ -2,6 +2,7 @@ mod sorted_bytes_iterator;
 
 pub use sorted_bytes_iterator::SortedBytesIterator;
 
+#[cfg(test)]
 pub fn get_current_pid_rss() -> usize {
     let pid = format!("{}", std::process::id());
     let out = std::process::Command::new("ps")

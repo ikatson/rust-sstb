@@ -8,12 +8,15 @@ use nix::sys::uio::pread;
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
+use std::convert::TryFrom;
 
 fn pread_exact(fd: RawFd, mut offset: u64, length: u64) -> Result<Vec<u8>> {
-    let mut buf = vec![0u8; length as usize];
+    // if this was mmaped, there will be no truncation.
+    #[allow(clippy::cast_possible_truncation)]
+    let mut buf = vec![0_u8; length as usize];
     let mut remaining = length;
     while remaining > 0 {
-        let size = pread(fd, &mut buf, offset as i64)? as u64;
+        let size = pread(fd, &mut buf, i64::try_from(offset)?)? as u64;
         if size == 0 {
             return Err(error::INVALID_DATA);
         }
@@ -29,6 +32,8 @@ pub trait TSPageCache {
 
 impl TSPageCache for page_cache::StaticBufCache {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
+        // if this was mmaped, there will be no truncation.
+        #[allow(clippy::cast_possible_truncation)]
         self.get_buf()
             .get(offset as usize..(offset + length) as usize)
             .map(Bytes::from_static)
@@ -44,7 +49,7 @@ pub struct FileBackedPageCache {
 impl FileBackedPageCache {
     pub fn new(file: File, cache: ReadCache, count: usize) -> Self {
         Self {
-            file: file,
+            file,
             caches: TSLRUCache::new(count, cache),
         }
     }
@@ -70,9 +75,9 @@ pub struct WrappedCache<PC, U> {
 impl<PC, U> WrappedCache<PC, U> {
     pub fn new(inner: PC, uncompress: U, cache: ReadCache, count: usize) -> Self {
         Self {
-            inner: inner,
+            inner,
             caches: TSLRUCache::new(count, cache),
-            uncompress: uncompress,
+            uncompress,
         }
     }
 }

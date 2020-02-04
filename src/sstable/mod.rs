@@ -66,7 +66,7 @@ pub fn write_btree_map<K: AsRef<[u8]>, V: AsRef<[u8]>, P: AsRef<Path>>(
     filename: P,
     options: Option<WriteOptions>,
 ) -> Result<()> {
-    let options = options.unwrap_or_else(|| WriteOptions::default());
+    let options = options.unwrap_or_default();
     let mut writer = writer::SSTableWriterV1::new_with_options(filename, options)?;
 
     for (key, value) in map.iter() {

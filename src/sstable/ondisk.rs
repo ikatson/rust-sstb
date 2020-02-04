@@ -1,16 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 pub const MAGIC: &[u8] = b"\x80LSM";
-type KeyLength = u16;
+pub type KeyLength = u16;
+pub type ValueLength = u32;
+pub type OffsetLength = u64;
 
-const KEY_LENGTH_MAX: usize = core::u16::MAX as usize;
-const VALUE_LENGTH_MAX: usize = core::u32::MAX as usize;
-
-type ValueLength = u32;
-type OffsetLength = u64;
 const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KeyLength>();
 const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
-
 const OFFSET_SIZE: usize = core::mem::size_of::<OffsetLength>();
 
 use super::error::Error;
@@ -18,6 +14,7 @@ use super::result::Result;
 use super::utils::deserialize_from_eof_is_ok;
 use super::types::Compression;
 use std::io::{Read, Write};
+use std::convert::TryFrom;
 
 pub use super::types::Version;
 
@@ -29,15 +26,9 @@ pub struct KVLength {
 
 impl KVLength {
     pub fn new(k: usize, v: usize) -> Result<Self> {
-        if k > KEY_LENGTH_MAX {
-            return Err(Error::KeyTooLong(k));
-        }
-        if v > VALUE_LENGTH_MAX {
-            return Err(Error::ValueTooLong(v));
-        }
         Ok(Self {
-            key_length: k as KeyLength,
-            value_length: v as ValueLength,
+            key_length: KeyLength::try_from(k).map_err(|_| Error::KeyTooLong(k))?,
+            value_length: ValueLength::try_from(v).map_err(|_| Error::ValueTooLong(v))?,
         })
     }
     pub const fn encoded_size() -> usize {
@@ -56,16 +47,13 @@ pub struct KVOffset {
 
 impl KVOffset {
     pub fn new(k: usize, offset: OffsetLength) -> Result<Self> {
-        if k > KEY_LENGTH_MAX {
-            return Err(Error::KeyTooLong(k));
-        }
         Ok(Self {
-            key_length: k as KeyLength,
-            offset: offset,
+            key_length: KeyLength::try_from(k).map_err(|_| Error::KeyTooLong(k))?,
+            offset,
         })
     }
     pub const fn encoded_size() -> usize {
-        return KEY_LENGTH_SIZE + OFFSET_SIZE;
+        KEY_LENGTH_SIZE + OFFSET_SIZE
     }
     pub fn deserialize_from_eof_is_ok<R: Read>(r: R) -> Result<Option<Self>> {
         Ok(deserialize_from_eof_is_ok(r)?)

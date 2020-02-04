@@ -17,6 +17,6 @@ pub enum Compression {
 
 impl Default for Compression {
     fn default() -> Self {
-        Compression::None
+        Self::None
     }
 }

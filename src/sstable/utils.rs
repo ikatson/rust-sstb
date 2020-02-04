@@ -13,15 +13,13 @@ pub fn deserialize_from_eof_is_ok<T: serde::de::DeserializeOwned, R: Read>(
         Ok(val) => Ok(Some(val)),
         Err(e) => match &*e {
             bincode::ErrorKind::Io(ioe) => {
-                if ioe.kind() == std::io::ErrorKind::UnexpectedEof {
-                    if pr.current_offset() == 0 {
-                        // This is actually fine and we hit EOF right away.
-                        return Ok(None);
-                    }
+                if ioe.kind() == std::io::ErrorKind::UnexpectedEof && pr.current_offset() == 0 {
+                    // This is actually fine and we hit EOF right away.
+                    return Ok(None);
                 }
-                return Err(e)?;
+                Err(e.into())
             }
-            _ => Err(e)?,
+            _ => Err(e.into()),
         },
     }
 }

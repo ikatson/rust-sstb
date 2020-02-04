@@ -67,15 +67,15 @@ impl ReadCache {
         K: std::cmp::Eq + std::hash::Hash,
     {
         match self {
-            ReadCache::Blocks(b) => LruCache::new(*b),
-            ReadCache::Unbounded => LruCache::unbounded(),
+            Self::Blocks(b) => LruCache::new(*b),
+            Self::Unbounded => LruCache::unbounded(),
         }
     }
 }
 
 impl Default for ReadCache {
     fn default() -> Self {
-        ReadCache::Unbounded
+        Self::Unbounded
     }
 }
 
