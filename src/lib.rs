@@ -12,11 +12,12 @@
     // clippy::cargo,
 )]
 
-//! A future implementation of LSM tree will be in this module.
-//! As of the time of writing this, it contains only the `sstable` implementation.
+//! An experimental an educational attempt to write a Rust thread-safe sstables library.
 
 pub mod sstable;
 pub mod utils;
+
+pub use sstable::*;
 
 #[cfg(test)]
 mod tests {}

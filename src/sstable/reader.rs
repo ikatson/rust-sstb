@@ -411,6 +411,10 @@ impl SSTableReader {
 /// can happen behind the scenes for properly tracking chunks still in-use.
 ///
 /// If you want to use this with multiple threads just put it into an `Arc` without Mutex'es.
+///
+/// If your data is uncompressed, you probably better use `MmapUncompressedSSTableReader`,
+/// which is a lot simpler. However it needs to be confirmed in benchmarks. There are benchmarks,
+/// but conclusions are TBD.
 pub struct ThreadSafeSSTableReader {
     inner: ThreadSafeInnerReader,
 }
