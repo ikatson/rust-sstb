@@ -1,7 +1,8 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use super::compression::Uncompress;
-use super::{error, reader, Result};
+use super::{error, Result};
+use super::options::ReadCache;
 use lru::LruCache;
 
 pub trait PageCache {
@@ -29,24 +30,21 @@ impl PageCache for StaticBufCache {
     }
 }
 
-pub struct ReadCache<R> {
+pub struct ReadPageCache<R> {
     reader: R,
     cache: LruCache<u64, Vec<u8>>,
 }
 
-impl<R> ReadCache<R> {
-    pub fn new(reader: R, cache: reader::ReadCache) -> Self {
+impl<R> ReadPageCache<R> {
+    pub fn new(reader: R, cache: ReadCache) -> Self {
         Self {
             reader: reader,
-            cache: match cache {
-                reader::ReadCache::Unbounded => LruCache::unbounded(),
-                reader::ReadCache::Blocks(b) => LruCache::new(b),
-            },
+            cache: cache.lru(),
         }
     }
 }
 
-impl<R: Read + Seek> PageCache for ReadCache<R> {
+impl<R: Read + Seek> PageCache for ReadPageCache<R> {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]> {
         match self.cache.get(&offset) {
             Some(bytes) => Ok(unsafe { &*(bytes as &[u8] as *const [u8]) }),
@@ -68,7 +66,7 @@ pub struct WrappedCache<PC, U> {
 }
 
 impl<PC, U> WrappedCache<PC, U> {
-    pub fn new(inner: PC, uncompress: U, cache: reader::ReadCache) -> Self {
+    pub fn new(inner: PC, uncompress: U, cache: ReadCache) -> Self {
         Self {
             inner: inner,
             cache: cache.lru(),

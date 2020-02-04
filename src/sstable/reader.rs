@@ -8,10 +8,13 @@ use bincode;
 use memmap;
 use num_cpus;
 
-use super::*;
-
 use bytes::Bytes;
-use lru::LruCache;
+
+use super::ondisk::*;
+use super::{Result, Error, page_cache, posreader, compression, thread_safe_page_cache, block_reader};
+use super::error::INVALID_DATA;
+use super::options::*;
+use super::types::*;
 
 enum MetaData {
     V1_0(MetaV1_0),
@@ -157,92 +160,6 @@ pub struct SSTableReader {
     inner: InnerReader,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum ReadCache {
-    Blocks(usize),
-    Unbounded,
-}
-
-impl ReadCache {
-    pub fn lru<K, V>(&self) -> LruCache<K, V>
-    where
-        K: std::cmp::Eq + std::hash::Hash,
-    {
-        match self {
-            ReadCache::Blocks(b) => LruCache::new(*b),
-            ReadCache::Unbounded => LruCache::unbounded(),
-        }
-    }
-}
-
-impl Default for ReadCache {
-    fn default() -> Self {
-        ReadCache::Unbounded
-    }
-}
-
-pub struct ReadOptionsBuilder {
-    pub cache: Option<ReadCache>,
-    pub use_mmap: bool,
-    pub thread_buckets: Option<usize>,
-}
-
-impl ReadOptionsBuilder {
-    pub fn new() -> Self {
-        let default = ReadOptions::default();
-        Self {
-            cache: default.cache,
-            use_mmap: default.use_mmap,
-            thread_buckets: default.thread_buckets,
-        }
-    }
-    pub fn cache(&mut self, cache: Option<ReadCache>) -> &mut Self {
-        self.cache = cache;
-        self
-    }
-    pub fn use_mmap(&mut self, use_mmap: bool) -> &mut Self {
-        self.use_mmap = use_mmap;
-        self
-    }
-    pub fn thread_buckets(&mut self, thread_buckets: Option<usize>) -> &mut Self {
-        self.thread_buckets = thread_buckets;
-        self
-    }
-    pub fn build(&self) -> ReadOptions {
-        ReadOptions {
-            cache: self.cache,
-            use_mmap: self.use_mmap,
-            thread_buckets: self.thread_buckets,
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct ReadOptions {
-    pub cache: Option<ReadCache>,
-    pub use_mmap: bool,
-    pub thread_buckets: Option<usize>,
-}
-
-impl ReadOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    pub fn builder() -> ReadOptionsBuilder {
-        ReadOptionsBuilder::new()
-    }
-}
-
-impl Default for ReadOptions {
-    fn default() -> Self {
-        Self {
-            cache: Some(ReadCache::default()),
-            use_mmap: true,
-            thread_buckets: Some(num_cpus::get()),
-        }
-    }
-}
-
 struct InnerReader {
     index: Box<dyn Index>,
     // This is just to hold an mmap reference to be dropped in the end.
@@ -301,7 +218,7 @@ impl InnerReader {
 
         let pc: Box<dyn page_cache::PageCache> = match mmap_buf {
             Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
-            None => Box::new(page_cache::ReadCache::new(
+            None => Box::new(page_cache::ReadPageCache::new(
                 file,
                 opts.cache.clone().unwrap_or(ReadCache::default()),
             )),

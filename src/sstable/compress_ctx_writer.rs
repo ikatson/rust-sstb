@@ -1,7 +1,8 @@
 use std::io::Write;
 
-use super::*;
-use poswriter::PosWriter;
+use super::compression::*;
+use super::{Error, Result};
+use super::poswriter::PosWriter;
 
 const ENCODER_MISSING: Error = Error::ProgrammingError("encoder missing");
 
@@ -50,9 +51,9 @@ pub struct CompressionContextWriterImpl<F, C, W> {
 
 impl<F, C, W> CompressionContextWriterImpl<F, C, W>
 where
-    F: compression::CompressorFactory<PosWriter<W>, C>,
+    F: CompressorFactory<PosWriter<W>, C>,
     W: Write,
-    C: compression::Compressor<PosWriter<W>>,
+    C: Compressor<PosWriter<W>>,
 {
     pub fn new(writer: W, factory: F) -> Self {
         Self {
@@ -68,9 +69,9 @@ where
 
 impl<F, C, W> Write for CompressionContextWriterImpl<F, C, W>
 where
-    F: compression::CompressorFactory<PosWriter<W>, C>,
+    F: CompressorFactory<PosWriter<W>, C>,
     W: Write,
-    C: compression::Compressor<PosWriter<W>>,
+    C: Compressor<PosWriter<W>>,
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.get_mut_encoder().unwrap().write(buf)
@@ -83,9 +84,9 @@ where
 
 impl<F, C, W> CompressionContextWriter<W> for CompressionContextWriterImpl<F, C, W>
 where
-    F: compression::CompressorFactory<PosWriter<W>, C>,
+    F: CompressorFactory<PosWriter<W>, C>,
     W: Write,
-    C: compression::Compressor<PosWriter<W>>,
+    C: Compressor<PosWriter<W>>,
 {
     fn reset_compression_context(&mut self) -> Result<usize> {
         let enc = self.encoder.take().ok_or(ENCODER_MISSING)?;

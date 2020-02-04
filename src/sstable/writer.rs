@@ -6,10 +6,24 @@ use std::path::Path;
 
 use bincode;
 
-use super::*;
-use poswriter::PosWriter;
+use super::compression;
+use super::compress_ctx_writer::*;
+use super::ondisk::*;
+use super::options::*;
+use super::poswriter::PosWriter;
+use super::result::Result;
+use super::types::*;
 
-use compress_ctx_writer::*;
+
+pub trait RawSSTableWriter {
+    /// Set the key to the value. This method MUST be called in the sorted
+    /// order.
+    /// The keys MUST be unique.
+    /// Set of empty value is equal to a delete, and is recorded too.
+    fn set(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
+    /// Close the writer and flush everything to the underlying storage.
+    fn close(self) -> Result<()>;
+}
 
 /// SSTableWriterV1 writes SSTables to disk.
 pub struct SSTableWriterV1 {

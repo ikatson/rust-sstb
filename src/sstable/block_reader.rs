@@ -1,6 +1,7 @@
-use super::*;
+use crate::sstable::*;
 
 use std::cmp::{Ord, Ordering};
+use super::ondisk::KVLength;
 
 pub fn find_key_offset(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>> {
     macro_rules! buf_get {

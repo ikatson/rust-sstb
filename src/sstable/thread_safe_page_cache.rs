@@ -1,6 +1,7 @@
 use super::compression::Uncompress;
 use super::tslru::TSLRUCache;
-use super::{error, page_cache, reader, Result};
+use super::{error, page_cache, Result};
+use super::options::ReadCache;
 
 use bytes::Bytes;
 use nix::sys::uio::pread;
@@ -41,7 +42,7 @@ pub struct FileBackedPageCache {
 }
 
 impl FileBackedPageCache {
-    pub fn new(file: File, cache: reader::ReadCache, count: usize) -> Self {
+    pub fn new(file: File, cache: ReadCache, count: usize) -> Self {
         Self {
             file: file,
             caches: TSLRUCache::new(count, cache),
@@ -67,7 +68,7 @@ pub struct WrappedCache<PC, U> {
 }
 
 impl<PC, U> WrappedCache<PC, U> {
-    pub fn new(inner: PC, uncompress: U, cache: reader::ReadCache, count: usize) -> Self {
+    pub fn new(inner: PC, uncompress: U, cache: ReadCache, count: usize) -> Self {
         Self {
             inner: inner,
             caches: TSLRUCache::new(count, cache),
