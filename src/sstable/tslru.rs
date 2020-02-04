@@ -1,25 +1,31 @@
 use super::{ReadCache, Result};
 use bytes::Bytes;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 struct Inner {
-    value: Mutex<Option<Bytes>>,
+    value: RwLock<Option<Bytes>>,
 }
 
 impl Inner {
     fn new() -> Self {
         Self {
-            value: Mutex::new(None),
+            value: RwLock::new(None),
         }
     }
     fn get_or_insert<F>(&self, func: F) -> Result<Bytes>
     where
         F: Fn() -> Result<Bytes>,
     {
-        let mut g = self.value.lock();
+        {
+            let g = self.value.read();
+            if let Some(bytes) = g.as_ref() {
+                return Ok(bytes.clone())
+            }
+        }
+        let mut g = self.value.write();
         match g.as_mut() {
             Some(bytes) => Ok(bytes.clone()),
             None => {
