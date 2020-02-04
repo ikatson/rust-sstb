@@ -73,7 +73,7 @@ impl SSTableWriterV1 {
         Ok(Self {
             // TODO: this cast is safe, however concerning...
             // maybe PosWriter should be u64 instead of usize?
-            file: PosWriter::new(file, data_start as usize),
+            file: PosWriter::new(file, data_start),
             meta,
             meta_start,
             data_start,
@@ -121,7 +121,7 @@ impl RawSSTableWriter for SSTableWriterV1 {
         if self.meta.items == 0 {
             self.sparse_index.push((key.to_owned(), self.data_start));
         } else {
-            if self.file.current_offset() + approx_msg_len >= self.flush_every {
+            if self.file.current_offset() + approx_msg_len as u64 >= self.flush_every as u64 {
                 let total_offset =
                     self.data_start + self.file.get_mut().reset_compression_context()? as u64;
                 self.file.reset_offset(0);

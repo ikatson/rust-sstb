@@ -3,6 +3,7 @@ use std::io::Write;
 use super::compression::*;
 use super::{Error, Result};
 use super::poswriter::PosWriter;
+use std::convert::TryFrom;
 
 const ENCODER_MISSING: Error = Error::ProgrammingError("encoder missing");
 
@@ -36,7 +37,7 @@ impl<W: Write> Write for UncompressedWriter<W> {
 
 impl<W: Write> CompressionContextWriter<W> for UncompressedWriter<W> {
     fn reset_compression_context(&mut self) -> Result<usize> {
-        Ok(self.writer.current_offset())
+        Ok(usize::try_from(self.writer.current_offset())?)
     }
     fn into_inner(self: Box<Self>) -> Result<W> {
         Ok(self.writer.into_inner())
@@ -93,7 +94,7 @@ where
         let pos_writer = enc.into_inner()?;
         let offset = pos_writer.current_offset();
         self.encoder.replace(self.factory.from_writer(pos_writer));
-        Ok(offset)
+        Ok(usize::try_from(offset)?)
     }
     fn into_inner(mut self: Box<Self>) -> Result<W> {
         let enc = self.encoder.take().ok_or(ENCODER_MISSING)?;
