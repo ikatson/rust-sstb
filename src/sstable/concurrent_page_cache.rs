@@ -1,5 +1,5 @@
 use super::compression::Uncompress;
-use super::concurrent_lru::TSLRUCache;
+use super::concurrent_lru::ConcurrentLRUCache;
 use super::{error, page_cache, Result};
 use super::options::ReadCache;
 
@@ -43,14 +43,14 @@ impl ConcurrentPageCache for page_cache::StaticBufCache {
 
 pub struct FileBackedPageCache {
     file: File,
-    caches: TSLRUCache,
+    caches: ConcurrentLRUCache,
 }
 
 impl FileBackedPageCache {
     pub fn new(file: File, cache: ReadCache, count: usize) -> Self {
         Self {
             file,
-            caches: TSLRUCache::new(count, cache),
+            caches: ConcurrentLRUCache::new(count, cache),
         }
     }
     fn read_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
@@ -68,7 +68,7 @@ impl ConcurrentPageCache for FileBackedPageCache {
 
 pub struct WrappedCache<PC, U> {
     inner: PC,
-    caches: TSLRUCache,
+    caches: ConcurrentLRUCache,
     uncompress: U,
 }
 
@@ -76,7 +76,7 @@ impl<PC, U> WrappedCache<PC, U> {
     pub fn new(inner: PC, uncompress: U, cache: ReadCache, count: usize) -> Self {
         Self {
             inner,
-            caches: TSLRUCache::new(count, cache),
+            caches: ConcurrentLRUCache::new(count, cache),
             uncompress,
         }
     }

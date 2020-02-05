@@ -37,18 +37,29 @@ impl Inner {
     }
 }
 
-pub struct TSLRUCache {
+/// An LRU cache of Bytes that can be used by multiple threads
+/// concurrently.
+///
+/// Works by sharding the single-threaded LRUCache into multiple shards.
+pub struct ConcurrentLRUCache {
     caches: Vec<Mutex<lru::LruCache<u64, Arc<Inner>>>>,
 }
 
-impl TSLRUCache {
-    pub fn new(count: usize, cache: ReadCache) -> Self {
+impl ConcurrentLRUCache {
+    pub fn new(shards: usize, cache: ReadCache) -> Self {
         Self {
             caches: core::iter::repeat_with(|| Mutex::new(cache.lru()))
-                .take(count)
+                .take(shards)
                 .collect(),
         }
     }
+
+    /// Get or insert the value into the cache. The inserted value is computed
+    /// using the provided callback.
+    ///
+    /// The shard-level lock is NOT held during the computation.
+    /// During the computation the chunk-level lock is held, so only threads contending
+    /// on the specific chunk will get blocked.
     pub fn get_or_insert<F>(&self, offset: u64, func: F) -> Result<Bytes>
     where
         F: Fn() -> Result<Bytes>,
