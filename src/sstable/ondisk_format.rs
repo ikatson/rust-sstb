@@ -1,6 +1,6 @@
 //! Ondisk format structs, serialized with "bincode".
 //!
-//! Any version format has the following preamble.
+//! Ondisk format has the following preamble.
 //!
 //! | MAGIC: [u8; 4] | version: struct{u16, u16} |
 //!
@@ -25,14 +25,11 @@ pub type KeyLength = u16;
 pub type ValueLength = u32;
 pub type Offset = u64;
 
-const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KeyLength>();
-const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
-const OFFSET_SIZE: usize = core::mem::size_of::<Offset>();
-
 use super::error::{Error, INVALID_DATA};
 use super::result::Result;
 use super::utils::deserialize_from_eof_is_ok;
 use super::types::Compression;
+use core::mem::size_of;
 use std::cmp::{Ord, Ordering};
 use std::io::{Read, Write};
 use std::convert::TryFrom;
@@ -53,7 +50,8 @@ impl KVLength {
         })
     }
     pub const fn encoded_size() -> usize {
-        KEY_LENGTH_SIZE + VALUE_LENGTH_SIZE
+        // can't use sizeof Self as bincode has no padding while the struct might.
+        size_of::<KeyLength>() + size_of::<ValueLength>()
     }
     pub fn serialize_into<W: Write>(&self, w: W) -> Result<()> {
         Ok(bincode::serialize_into(w, self)?)
@@ -74,7 +72,8 @@ impl KVOffset {
         })
     }
     pub const fn encoded_size() -> usize {
-        KEY_LENGTH_SIZE + OFFSET_SIZE
+        // can't use sizeof Self as bincode has no padding while the struct might.
+        size_of::<KeyLength>() + size_of::<Offset>()
     }
     pub fn deserialize_from_eof_is_ok<R: Read>(r: R) -> Result<Option<Self>> {
         Ok(deserialize_from_eof_is_ok(r)?)
