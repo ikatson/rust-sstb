@@ -170,7 +170,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             &format!("{},test=get_multithreaded,items={}", prefix, items),
             |b| {
                 b.iter_batched(
-                    || ThreadSafeSSTableReader::new_with_options(filename, &read_opts).unwrap(),
+                    || ConcurrentSSTableReader::new_with_options(filename, &read_opts).unwrap(),
                     |reader| {
 
 
