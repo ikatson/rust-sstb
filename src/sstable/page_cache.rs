@@ -1,8 +1,10 @@
 use std::io::{Read, Seek, SeekFrom};
+use std::convert::TryFrom;
 
 use super::compression::Uncompress;
 use super::{error, Result};
 use super::options::ReadCache;
+
 use lru::LruCache;
 
 pub trait PageCache {
@@ -51,9 +53,7 @@ impl<R: Read + Seek> PageCache for ReadPageCache<R> {
         match self.cache.get(&offset) {
             Some(bytes) => Ok(unsafe { &*(bytes as &[u8] as *const [u8]) }),
             None => {
-                // if this was mmaped, there will be no truncation.
-                #[allow(clippy::cast_possible_truncation)]
-                let mut buf = vec![0; length as usize];
+                let mut buf = vec![0; usize::try_from(length)?];
                 self.reader.seek(SeekFrom::Start(offset))?;
                 self.reader.read_exact(&mut buf)?;
                 self.cache.put(offset, buf);

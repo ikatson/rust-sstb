@@ -1,3 +1,5 @@
+//! Traits and implementations of various compressors and decompressors.
+
 use super::Result;
 
 use super::Error;

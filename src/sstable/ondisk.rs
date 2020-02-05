@@ -1,13 +1,33 @@
+//! Ondisk format structs, serialized with "bincode".
+//!
+//! Any version format has the following preamble.
+//!
+//! | MAGIC | VERSION |
+//!
+//! Then depending on version the rest of the file is structured.
+//! Full v1 format looks like this:
+//!
+//! | MAGIC | VERSION_1_0 | Meta_V1_0| DATA | INDEX_DATA |
+//!
+//! V1 data has the following layout
+//!
+//! | KVLength | key: [u8] | value: [u8] |
+//!
+//! V1 index data has the following layout
+//!
+//! | KVOffset | key: [u8] | offset: Offset |
+
 use serde::{Deserialize, Serialize};
 
+/// The resulting sstable files MUST have this prefix.
 pub const MAGIC: &[u8] = b"\x80LSM";
 pub type KeyLength = u16;
 pub type ValueLength = u32;
-pub type OffsetLength = u64;
+pub type Offset = u64;
 
 const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KeyLength>();
 const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
-const OFFSET_SIZE: usize = core::mem::size_of::<OffsetLength>();
+const OFFSET_SIZE: usize = core::mem::size_of::<Offset>();
 
 use super::error::Error;
 use super::result::Result;
@@ -42,11 +62,11 @@ impl KVLength {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct KVOffset {
     pub key_length: KeyLength,
-    pub offset: OffsetLength,
+    pub offset: Offset,
 }
 
 impl KVOffset {
-    pub fn new(k: usize, offset: OffsetLength) -> Result<Self> {
+    pub fn new(k: usize, offset: Offset) -> Result<Self> {
         Ok(Self {
             key_length: KeyLength::try_from(k).map_err(|_| Error::KeyTooLong(k))?,
             offset,

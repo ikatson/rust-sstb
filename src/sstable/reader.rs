@@ -378,7 +378,7 @@ impl ThreadSafeInnerReader {
         };
 
         let chunk: Bytes = self.page_cache.get_chunk(offset, right_bound - offset)?;
-        if let Some((start, end)) = block_reader::find_key_offset(&chunk, key)? {
+        if let Some((start, end)) = block_reader::find_value_offset_v1(&chunk, key)? {
             Ok(Some(chunk.slice(start..end)))
         } else {
             Ok(None)
