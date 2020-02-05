@@ -10,7 +10,7 @@ use bincode;
 
 use super::compression;
 use super::compress_ctx_writer::*;
-use super::ondisk::*;
+use super::ondisk_format::*;
 use super::options::*;
 use super::poswriter::PosWriter;
 use super::result::Result;

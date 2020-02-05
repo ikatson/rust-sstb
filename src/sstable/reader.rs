@@ -12,8 +12,8 @@ use num_cpus;
 
 use bytes::Bytes;
 
-use super::ondisk::*;
-use super::{Result, Error, page_cache, posreader, compression, thread_safe_page_cache, block_reader};
+use super::ondisk_format::*;
+use super::{Result, Error, page_cache, posreader, compression, concurrent_page_cache};
 use super::error::INVALID_DATA;
 use super::options::*;
 use super::types::*;
@@ -27,6 +27,8 @@ struct MetaResult {
     offset: usize,
 }
 
+// Read metadata of any format (only V1 is supported now) from a reader.
+// This will fail if the file is not a valid sstable.
 fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     file.seek(SeekFrom::Start(0))?;
     let mut reader = posreader::PosReader::new(BufReader::new(file), 0);
@@ -56,6 +58,8 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     })
 }
 
+/// Find the potential start and end offsets of the key.
+/// This will be used later to fetch the chunk from the page cache.
 fn find_bounds<K, T>(map: &BTreeMap<K, T>, key: &[u8], end_default: T) -> Option<(T, T)>
 where
     K: Borrow<[u8]> + std::cmp::Ord,
@@ -83,10 +87,15 @@ where
     Some((start, end))
 }
 
+/// An object that can find the potential start and end offsets of the key.
+///
+/// A trait is used instead of a struct cause we have multiple implementations,
+/// owning and not owning.
 trait Index {
     fn find_bounds(&self, key: &[u8], end_default: u64) -> Option<(u64, u64)>;
 }
 
+/// An index that is used with Mmap blocks.
 struct MemIndex {
     index: BTreeMap<&'static [u8], u64>,
 }
@@ -266,9 +275,9 @@ impl InnerReader {
         };
 
         let chunk = self.page_cache.get_chunk(offset, right_bound - offset)?;
-        let block = block_reader::ReferenceBlock::new(chunk);
-        let found = block.find_key_rb(key)?;
-        Ok(found)
+        Ok(find_value_offset_v1(chunk, key)?.map(|(start, end)| {
+            &chunk[start..end]
+        }))
     }
 }
 
@@ -276,7 +285,7 @@ struct ThreadSafeInnerReader {
     index: Box<dyn Index + Sync + Send>,
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
-    page_cache: Box<dyn thread_safe_page_cache::TSPageCache + Sync + Send>,
+    page_cache: Box<dyn concurrent_page_cache::ConcurrentPageCache + Sync + Send>,
     meta: MetaV1_0,
     data_start: u64,
 }
@@ -333,30 +342,30 @@ impl ThreadSafeInnerReader {
 
         let num_cpus = opts.thread_buckets.unwrap_or_else(num_cpus::get);
 
-        let pc: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> = match mmap_buf {
+        let pc: Box<dyn concurrent_page_cache::ConcurrentPageCache + Send + Sync> = match mmap_buf {
             Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
-            None => Box::new(thread_safe_page_cache::FileBackedPageCache::new(
+            None => Box::new(concurrent_page_cache::FileBackedPageCache::new(
                 file,
                 opts.cache.clone().unwrap_or_default(),
                 num_cpus,
             )),
         };
 
-        let uncompressed_cache: Box<dyn thread_safe_page_cache::TSPageCache + Send + Sync> =
+        let uncompressed_cache: Box<dyn concurrent_page_cache::ConcurrentPageCache + Send + Sync> =
             match meta.compression {
                 Compression::None => pc,
                 Compression::Zlib => {
                     let dec = compression::ZlibUncompress {};
                     let cache = opts.cache.clone().unwrap_or_default();
                     let wrapped =
-                        thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                    concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
                 Compression::Snappy => {
                     let dec = compression::SnappyUncompress {};
                     let cache = opts.cache.clone().unwrap_or_default();
                     let wrapped =
-                        thread_safe_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                    concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
             };
@@ -378,7 +387,7 @@ impl ThreadSafeInnerReader {
         };
 
         let chunk: Bytes = self.page_cache.get_chunk(offset, right_bound - offset)?;
-        if let Some((start, end)) = block_reader::find_value_offset_v1(&chunk, key)? {
+        if let Some((start, end)) = find_value_offset_v1(&chunk, key)? {
             Ok(Some(chunk.slice(start..end)))
         } else {
             Ok(None)
@@ -498,9 +507,8 @@ impl MmapUncompressedSSTableReader {
 
         // if it was mmaped, it won't truncate
         #[allow(clippy::cast_possible_truncation)]
-        let block =
-            block_reader::ReferenceBlock::new(&self.mmap[offset as usize..right_bound as usize]);
-        let found = block.find_key_rb(key)?;
-        Ok(found)
+        let buf = &self.mmap[offset as usize..right_bound as usize];
+
+        Ok(find_value_offset_v1(buf, key)?.map(|(start, end)| &buf[start..end]))
     }
 }

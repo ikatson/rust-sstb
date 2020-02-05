@@ -1,3 +1,5 @@
+//! Traits for caching the results of uncompression and reading disk pages.
+
 use std::io::{Read, Seek, SeekFrom};
 use std::convert::TryFrom;
 
@@ -7,10 +9,22 @@ use super::options::ReadCache;
 
 use lru::LruCache;
 
+/// PageCache is something that can get byte chunks of a given length, given an offset.
+///
+/// This is used for 2 purposes: reading from disk, and optionally uncompressing the
+/// chunk that was read from disk.
+///
+/// If compression is used, there are 2 PageCache objects used - one to read from disk
+/// (or mmap buffer), and another to uncompress that and cache the result.
+/// In the latter case, the outer PageCache wraps the inner one.
+///
+/// Note, that this cannot be used concurrently, note the &mut self. For concurrent use,
+/// more complicated concurrent cache can be used, from another file.
 pub trait PageCache {
     fn get_chunk(&mut self, offset: u64, length: u64) -> Result<&[u8]>;
 }
 
+/// This is used to read from the mmap'ed region. It's a mere proxy to the slice.
 pub struct StaticBufCache {
     buf: &'static [u8],
 }
@@ -34,6 +48,7 @@ impl PageCache for StaticBufCache {
     }
 }
 
+/// This is used to read from a file (or any seek'able reader).
 pub struct ReadPageCache<R> {
     reader: R,
     cache: LruCache<u64, Vec<u8>>,
@@ -54,6 +69,7 @@ impl<R: Read + Seek> PageCache for ReadPageCache<R> {
             Some(bytes) => Ok(unsafe { &*(bytes as &[u8] as *const [u8]) }),
             None => {
                 let mut buf = vec![0; usize::try_from(length)?];
+                // TODO: this can use pread instead of 2 syscalls.
                 self.reader.seek(SeekFrom::Start(offset))?;
                 self.reader.read_exact(&mut buf)?;
                 self.cache.put(offset, buf);
@@ -63,6 +79,8 @@ impl<R: Read + Seek> PageCache for ReadPageCache<R> {
     }
 }
 
+/// A cache that wraps another one, uncompresses the inner cache's results and
+/// store the uncompressed chunks in the LRU cache inside.
 pub struct WrappedCache<PC, U> {
     inner: PC,
     cache: LruCache<u64, Vec<u8>>,

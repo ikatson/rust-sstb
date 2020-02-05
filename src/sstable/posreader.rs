@@ -1,5 +1,7 @@
 use std::io::{Read, Result};
 
+/// PosReader is a reader that remembers the position read and can
+/// report it back at any time.
 #[derive(Debug)]
 pub struct PosReader<R> {
     r: R,

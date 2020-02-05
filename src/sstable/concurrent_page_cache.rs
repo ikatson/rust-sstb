@@ -1,5 +1,5 @@
 use super::compression::Uncompress;
-use super::tslru::TSLRUCache;
+use super::concurrent_lru::TSLRUCache;
 use super::{error, page_cache, Result};
 use super::options::ReadCache;
 
@@ -26,11 +26,11 @@ fn pread_exact(fd: RawFd, mut offset: u64, length: u64) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-pub trait TSPageCache {
+pub trait ConcurrentPageCache {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes>;
 }
 
-impl TSPageCache for page_cache::StaticBufCache {
+impl ConcurrentPageCache for page_cache::StaticBufCache {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         // if this was mmaped, there will be no truncation.
         #[allow(clippy::cast_possible_truncation)]
@@ -59,7 +59,7 @@ impl FileBackedPageCache {
     }
 }
 
-impl TSPageCache for FileBackedPageCache {
+impl ConcurrentPageCache for FileBackedPageCache {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         self.caches
             .get_or_insert(offset, || self.read_chunk(offset, length))
@@ -82,16 +82,17 @@ impl<PC, U> WrappedCache<PC, U> {
     }
 }
 
-impl TSPageCache for Box<dyn TSPageCache + Send + Sync> {
+impl ConcurrentPageCache for Box<dyn ConcurrentPageCache + Send + Sync> {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         self.as_ref().get_chunk(offset, length)
     }
 }
 
-impl<PC, U> TSPageCache for WrappedCache<PC, U>
+impl<PC, U> ConcurrentPageCache for WrappedCache<PC, U>
 where
     U: Uncompress,
-    PC: TSPageCache,
+    PC: ConcurrentPageCache
+,
 {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         self.caches.get_or_insert(offset, || {

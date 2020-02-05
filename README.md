@@ -1,4 +1,5 @@
 # TODO
+- [ ] Mmap can be put into an Rc or an Arc, to remove unsafe static buffer casts.
 - [x] u32 keys and values, not u64
 - [ ] bloom filters on disk
 - [ ] writing "flush_every"'s default should depend on the default compression.
@@ -11,8 +12,8 @@
   reflect that
 - [x] zlib bounded and unbounded performs the same in benchmarks
 - [ ] remove as much as possible unsafe and unwrap
-- [ ] analyze all casts from u64 to usize
-  - [ ] clippy actually has a lint for it in pedantic
+- [x] analyze all casts from u64 to usize
+  - [x] clippy actually has a lint for it in pedantic
 - [x] multi-threading
 - [x] compression is all over the place
 - [ ] files and imports are all over the place, reorganize

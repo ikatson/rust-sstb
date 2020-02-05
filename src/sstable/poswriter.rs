@@ -1,5 +1,6 @@
 use std::io::{Result, Write};
 
+// PosWriter is a Writer that remembers the position and can report it at any time.
 #[derive(Debug)]
 pub struct PosWriter<W> {
     w: W,

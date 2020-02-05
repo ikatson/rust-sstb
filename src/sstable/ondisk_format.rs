@@ -2,12 +2,12 @@
 //!
 //! Any version format has the following preamble.
 //!
-//! | MAGIC | VERSION |
+//! | MAGIC: [u8; 4] | version: struct{u16, u16} |
 //!
 //! Then depending on version the rest of the file is structured.
 //! Full v1 format looks like this:
 //!
-//! | MAGIC | VERSION_1_0 | Meta_V1_0| DATA | INDEX_DATA |
+//! | MAGIC: [u8; 4] | Version_1_0: [1u16, 0u16] | Meta_V1_0 | DATA | INDEX_DATA |
 //!
 //! V1 data has the following layout
 //!
@@ -29,10 +29,11 @@ const KEY_LENGTH_SIZE: usize = core::mem::size_of::<KeyLength>();
 const VALUE_LENGTH_SIZE: usize = core::mem::size_of::<ValueLength>();
 const OFFSET_SIZE: usize = core::mem::size_of::<Offset>();
 
-use super::error::Error;
+use super::error::{Error, INVALID_DATA};
 use super::result::Result;
 use super::utils::deserialize_from_eof_is_ok;
 use super::types::Compression;
+use std::cmp::{Ord, Ordering};
 use std::io::{Read, Write};
 use std::convert::TryFrom;
 
@@ -93,4 +94,47 @@ pub struct MetaV1_0 {
     // it's presence indicates that the file is good.
     pub finished: bool,
     pub checksum: u32,
+}
+
+
+/// Find the key in the chunk by scanning sequentially.
+///
+/// This assumes the chunk was fetched from disk and has V1 ondisk format.
+///
+/// Returns the start and end index of the value.
+///
+/// TODO: this probably belongs in "ondisk" for version V1.
+pub fn find_value_offset_v1(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>> {
+    macro_rules! buf_get {
+        ($x:expr) => {{
+            buf.get($x).ok_or(INVALID_DATA)?
+        }};
+    }
+
+    let kvlen_encoded_size = KVLength::encoded_size();
+
+    let mut offset = 0;
+    while offset < buf.len() {
+        let kvlength = bincode::deserialize::<KVLength>(&buf)?;
+        let (start_key, cursor) = {
+            let key_start = offset + kvlen_encoded_size;
+            let key_end = key_start + kvlength.key_length as usize;
+            (buf_get!(key_start..key_end), key_end)
+        };
+
+        let (start, end) = {
+            let value_end = cursor + kvlength.value_length as usize;
+            (cursor, value_end)
+        };
+        offset = end;
+
+        match start_key.cmp(key) {
+            Ordering::Equal => {
+                return Ok(Some((start, end)));
+            }
+            Ordering::Greater => return Ok(None),
+            Ordering::Less => continue,
+        }
+    }
+    Ok(None)
 }
