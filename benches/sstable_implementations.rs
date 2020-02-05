@@ -172,8 +172,6 @@ fn criterion_benchmark(c: &mut Criterion) {
                 b.iter_batched(
                     || ConcurrentSSTableReader::new_with_options(filename, &read_opts).unwrap(),
                     |reader| {
-
-
                         state.get_shuffled_input_ref().par_iter().for_each(|key| {
                             let value = reader.get(key).unwrap();
                             assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key.as_ref()));

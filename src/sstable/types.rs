@@ -1,6 +1,6 @@
 pub const VERSION_20: Version = Version { major: 2, minor: 0 };
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// The version of the on-disk table.
 #[derive(Serialize, Default, Deserialize, Debug, PartialEq, Eq)]

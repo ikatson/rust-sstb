@@ -27,12 +27,12 @@ pub type Offset = u64;
 
 use super::error::{Error, INVALID_DATA};
 use super::result::Result;
-use super::utils::deserialize_from_eof_is_ok;
 use super::types::Compression;
+use super::utils::deserialize_from_eof_is_ok;
 use core::mem::size_of;
 use std::cmp::{Ord, Ordering};
-use std::io::{Read, Write};
 use std::convert::TryFrom;
+use std::io::{Read, Write};
 
 pub use super::types::Version;
 
@@ -103,7 +103,6 @@ pub struct MetaV2_0 {
     pub checksum: u32,
     pub bloom: BloomV2_0,
 }
-
 
 /// Find the key in the chunk by scanning sequentially.
 ///

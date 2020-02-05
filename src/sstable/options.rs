@@ -11,10 +11,10 @@ pub struct BloomConfig {
 
 impl Default for BloomConfig {
     fn default() -> Self {
-        return Self{
+        return Self {
             bitmap_size: 1_000_000,
             items_count: 1_000_000,
-        }
+        };
     }
 }
 
@@ -40,7 +40,7 @@ impl Default for WriteOptions {
         WriteOptions {
             compression: Compression::None,
             flush_every: 4096,
-            bloom: BloomConfig::default()
+            bloom: BloomConfig::default(),
         }
     }
 }

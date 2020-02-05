@@ -59,7 +59,7 @@ pub struct SortedBytesIterator {
 impl Clone for SortedBytesIterator {
     fn clone(&self) -> Self {
         let length = self.buf.len();
-        Self{
+        Self {
             buf: core::iter::repeat(self.first).take(length).collect(),
             current: length,
             first: self.first,
@@ -90,10 +90,10 @@ impl SortedBytesIterator {
     /// Customize the bytes being returned.
     pub fn new_first_last(length: usize, first: u8, last: u8, limit: usize) -> Result<Self> {
         if length == 0 {
-            return Err(Error::ProgrammingError("length should be greater than 0"))
+            return Err(Error::ProgrammingError("length should be greater than 0"));
         }
         if last <= first {
-            return Err(Error::ProgrammingError("expected last > first"))
+            return Err(Error::ProgrammingError("expected last > first"));
         }
         let buf = core::iter::repeat(first).take(length).collect();
         Ok(Self {

@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use super::compression::*;
-use super::{Error, Result};
 use super::poswriter::PosWriter;
+use super::{Error, Result};
 use std::convert::TryFrom;
 
 const COMPRESSOR_MISSING: Error = Error::ProgrammingError("compressor missing");
@@ -106,7 +106,8 @@ where
         let enc = self.compressor.take().ok_or(COMPRESSOR_MISSING)?;
         let pos_writer = enc.into_inner()?;
         let offset = pos_writer.current_offset();
-        self.compressor.replace(self.factory.from_writer(pos_writer));
+        self.compressor
+            .replace(self.factory.from_writer(pos_writer));
         Ok(usize::try_from(offset)?)
     }
     fn into_inner(mut self: Box<Self>) -> Result<W> {

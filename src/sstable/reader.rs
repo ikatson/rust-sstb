@@ -15,6 +15,7 @@
 
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
@@ -23,13 +24,14 @@ use bincode;
 use memmap;
 use num_cpus;
 
+use bloomfilter::Bloom;
 use bytes::Bytes;
 
-use super::ondisk_format::*;
-use super::{Result, Error, page_cache, posreader, compression, concurrent_page_cache};
 use super::error::INVALID_DATA;
+use super::ondisk_format::*;
 use super::options::*;
 use super::types::*;
+use super::{compression, concurrent_page_cache, page_cache, posreader, Error, Result};
 
 enum MetaData {
     V2_0(MetaV2_0),
@@ -65,10 +67,24 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     let mut file = reader.into_inner().into_inner();
     file.seek(SeekFrom::Start(offset as u64))?;
 
-    Ok(MetaResult {
-        meta,
-        offset,
-    })
+    Ok(MetaResult { meta, offset })
+}
+
+/// Read the bloom filter from a reader.
+fn read_bloom<R: Read>(mut reader: R, config: &BloomV2_0) -> Result<Bloom<[u8]>> {
+    if config.bitmap_bits & 7 > 0 {
+        return Err(INVALID_DATA);
+    }
+    let len = usize::try_from(config.bitmap_bits >> 3)?;
+    // I don't think there's a way not to do this allocation.
+    let mut buf = vec![0u8; len];
+    reader.read_exact(&mut buf)?;
+    Ok(Bloom::from_existing(
+        &buf,
+        config.bitmap_bits,
+        config.k_num,
+        config.sip_keys,
+    ))
 }
 
 /// Find the potential start and end offsets of the key.
@@ -195,6 +211,7 @@ struct InnerReader {
     page_cache: Box<dyn page_cache::PageCache>,
     meta: MetaV2_0,
     data_start: u64,
+    bloom: Bloom<[u8]>,
 }
 
 impl InnerReader {
@@ -226,25 +243,47 @@ impl InnerReader {
             buf
         });
 
-        let index: Box<dyn Index> = match meta.compression {
+        let (index, bloom): (Box<dyn Index>, Bloom<[u8]>) = match meta.compression {
             Compression::None => match mmap_buf {
-                Some(mmap) => Box::new(MemIndex::from_static_buf(
-                    // if it was mmaped, it won't truncate
-                    #[allow(clippy::cast_possible_truncation)]
-                    &mmap[index_start as usize..index_end as usize],
-                    meta.index_len,
-                )?),
-                None => Box::new(OwnedIndex::from_reader((&mut file).take(meta.index_len))?),
+                Some(mmap) => {
+                    let index = Box::new(MemIndex::from_static_buf(
+                        // if it was mmaped, it won't truncate
+                        #[allow(clippy::cast_possible_truncation)]
+                        &mmap
+                            .get(index_start as usize..index_end as usize)
+                            .ok_or(INVALID_DATA)?,
+                        meta.index_len,
+                    )?);
+                    file.seek(SeekFrom::Start(index_end))?;
+                    let bloom = read_bloom((&mut file).take(meta.bloom_len), &meta.bloom)?;
+                    (index, bloom)
+                }
+                None => {
+                    let index =
+                        Box::new(OwnedIndex::from_reader((&mut file).take(meta.index_len))?);
+                    let bloom = read_bloom((&mut file).take(meta.bloom_len), &meta.bloom)?;
+                    (index, bloom)
+                }
             },
             Compression::Zlib => {
-                // does not make sense to use mmap for index as we are not going to access
-                // the pages anyway.
-                let reader = flate2::read::ZlibDecoder::new((&mut file).take(meta.index_len));
-                Box::new(OwnedIndex::from_reader(reader)?)
+                let index = Box::new(OwnedIndex::from_reader(flate2::read::ZlibDecoder::new(
+                    (&mut file).take(meta.index_len),
+                ))?);
+                let bloom = read_bloom(
+                    flate2::read::ZlibDecoder::new((&mut file).take(meta.bloom_len)),
+                    &meta.bloom,
+                )?;
+                (index, bloom)
             }
             Compression::Snappy => {
-                let reader = snap::Reader::new((&mut file).take(meta.index_len));
-                Box::new(OwnedIndex::from_reader(reader)?)
+                let index = Box::new(OwnedIndex::from_reader(snap::Reader::new(
+                    (&mut file).take(meta.index_len),
+                ))?);
+                let bloom = read_bloom(
+                    snap::Reader::new((&mut file).take(meta.bloom_len)),
+                    &meta.bloom,
+                )?;
+                (index, bloom)
             }
         };
 
@@ -278,10 +317,14 @@ impl InnerReader {
             page_cache: uncompressed_cache,
             data_start,
             meta,
+            bloom,
         })
     }
 
     fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
+        if !self.bloom.check(key) {
+            return Ok(None);
+        }
         let index_start = self.data_start + self.meta.data_len as u64;
         let (offset, right_bound) = match self.index.find_bounds(key, index_start) {
             Some(v) => v,
@@ -289,9 +332,7 @@ impl InnerReader {
         };
 
         let chunk = self.page_cache.get_chunk(offset, right_bound - offset)?;
-        Ok(find_value_offset_v2(chunk, key)?.map(|(start, end)| {
-            &chunk[start..end]
-        }))
+        Ok(find_value_offset_v2(chunk, key)?.map(|(start, end)| &chunk[start..end]))
     }
 }
 
@@ -302,6 +343,7 @@ struct ConcurrentInnerReader {
     page_cache: Box<dyn concurrent_page_cache::ConcurrentPageCache + Sync + Send>,
     meta: MetaV2_0,
     data_start: u64,
+    bloom: Bloom<[u8]>,
 }
 
 impl ConcurrentInnerReader {
@@ -317,6 +359,7 @@ impl ConcurrentInnerReader {
         };
 
         let index_start = data_start + (meta.data_len as u64);
+        let index_end = index_start + meta.index_len;
 
         file.seek(SeekFrom::Start(index_start))?;
 
@@ -332,25 +375,50 @@ impl ConcurrentInnerReader {
             buf
         });
 
-        let index: Box<dyn Index + Send + Sync> = match meta.compression {
+        let (index, bloom): (Box<dyn Index + Send + Sync>, Bloom<[u8]>) = match meta.compression {
             Compression::None => match mmap_buf {
-                Some(mmap) => Box::new(MemIndex::from_static_buf(
-                    // if it was mmaped, it won't truncate
-                    #[allow(clippy::cast_possible_truncation)]
-                    &mmap[index_start as usize..(index_start + meta.index_len) as usize],
-                    meta.index_len,
-                )?),
-                None => Box::new(OwnedIndex::from_reader((&mut file).take(meta.index_len))?),
+                Some(mmap) => {
+                    let index = Box::new(MemIndex::from_static_buf(
+                        // if it was mmaped, it won't truncate
+                        #[allow(clippy::cast_possible_truncation)]
+                        &mmap
+                            .get(index_start as usize..index_end as usize)
+                            .ok_or(INVALID_DATA)?,
+                        meta.index_len,
+                    )?);
+
+                    file.seek(SeekFrom::Start(index_end))?;
+                    let bloom = read_bloom((&mut file).take(meta.bloom_len), &meta.bloom)?;
+                    (index, bloom)
+                }
+                None => {
+                    let index =
+                        Box::new(OwnedIndex::from_reader((&mut file).take(meta.index_len))?);
+                    let bloom = read_bloom((&mut file).take(meta.bloom_len), &meta.bloom)?;
+                    (index, bloom)
+                }
             },
             Compression::Zlib => {
                 // does not make sense to use mmap for index as we are not going to access
                 // the pages anyway.
-                let reader = flate2::read::ZlibDecoder::new((&mut file).take(meta.index_len));
-                Box::new(OwnedIndex::from_reader(reader)?)
+                let index = Box::new(OwnedIndex::from_reader(flate2::read::ZlibDecoder::new(
+                    (&mut file).take(meta.index_len),
+                ))?);
+                let bloom = read_bloom(
+                    flate2::read::ZlibDecoder::new((&mut file).take(meta.bloom_len)),
+                    &meta.bloom,
+                )?;
+                (index, bloom)
             }
             Compression::Snappy => {
-                let reader = snap::Reader::new((&mut file).take(meta.index_len));
-                Box::new(OwnedIndex::from_reader(reader)?)
+                let index = Box::new(OwnedIndex::from_reader(snap::Reader::new(
+                    (&mut file).take(meta.index_len),
+                ))?);
+                let bloom = read_bloom(
+                    snap::Reader::new((&mut file).take(meta.bloom_len)),
+                    &meta.bloom,
+                )?;
+                (index, bloom)
             }
         };
 
@@ -372,14 +440,14 @@ impl ConcurrentInnerReader {
                     let dec = compression::ZlibUncompress {};
                     let cache = opts.cache.clone().unwrap_or_default();
                     let wrapped =
-                    concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                        concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
                 Compression::Snappy => {
                     let dec = compression::SnappyUncompress {};
                     let cache = opts.cache.clone().unwrap_or_default();
                     let wrapped =
-                    concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
+                        concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
             };
@@ -390,10 +458,14 @@ impl ConcurrentInnerReader {
             page_cache: uncompressed_cache,
             data_start,
             meta,
+            bloom,
         })
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
+        if !self.bloom.check(key) {
+            return Ok(None);
+        }
         let index_start = self.data_start + self.meta.data_len as u64;
         let (offset, right_bound) = match self.index.find_bounds(key, index_start) {
             Some(v) => v,
@@ -474,6 +546,7 @@ pub struct MmapUncompressedSSTableReader {
     index_start: u64,
     mmap: memmap::Mmap,
     index: MemIndex,
+    bloom: Bloom<[u8]>,
 }
 
 impl MmapUncompressedSSTableReader {
@@ -494,6 +567,7 @@ impl MmapUncompressedSSTableReader {
         }
 
         let index_start = data_start + (meta.data_len as u64);
+        let index_end = index_start + meta.index_len;
 
         file.seek(SeekFrom::Start(index_start))?;
         let mmap = unsafe { memmap::Mmap::map(&file) }?;
@@ -506,16 +580,29 @@ impl MmapUncompressedSSTableReader {
 
         // if it was mmaped, it won't truncate
         #[allow(clippy::cast_possible_truncation)]
-        let index = MemIndex::from_static_buf(&mmap_buf[index_start as usize..(index_start+meta.index_len) as usize], meta.index_len)?;
+        let index = MemIndex::from_static_buf(
+            &mmap_buf
+                .get(index_start as usize..index_end as usize)
+                .ok_or(INVALID_DATA)?,
+            meta.index_len,
+        )?;
+
+        file.seek(SeekFrom::Start(index_end))?;
+        let bloom = read_bloom((&mut file).take(meta.bloom_len), &meta.bloom)?;
+
         Ok(Self {
             mmap,
             index,
             index_start,
+            bloom,
         })
     }
 
     /// Get a key from the sstable.
     pub fn get<'a, 'b>(&'a self, key: &'b [u8]) -> Result<Option<&'a [u8]>> {
+        if !self.bloom.check(key) {
+            return Ok(None);
+        }
         let (offset, right_bound) = match self.index.find_bounds(key, self.index_start) {
             Some(v) => v,
             None => return Ok(None),

@@ -2,9 +2,10 @@
 - [ ] open-source
   - [ ] write README with badges
   - [ ] Travis tests etc
+- [ ] backtraces in errors
 - [ ] range queries
-- [ ] bloom filters on disk
-  - [ ] can be written with mmap probably, into a separate file
+- [x] bloom filters on disk
+  - they slowed things down by 25% though! but it works
 - [ ] writing "flush_every"'s default should depend on the default compression.
 - [ ] read cache size configurable both for page cache and for uncompressed cache
 - [ ] read cache size should be in bytes, not blocks

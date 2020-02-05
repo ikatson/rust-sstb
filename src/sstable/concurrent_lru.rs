@@ -22,7 +22,7 @@ impl Inner {
         {
             let g = self.value.read();
             if let Some(bytes) = g.as_ref() {
-                return Ok(bytes.clone())
+                return Ok(bytes.clone());
             }
         }
         let mut g = self.value.write();

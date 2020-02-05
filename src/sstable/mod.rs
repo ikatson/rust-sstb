@@ -18,10 +18,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-mod concurrent_page_cache;
-mod concurrent_lru;
 mod compress_ctx_writer;
 mod compression;
+mod concurrent_lru;
+mod concurrent_page_cache;
 mod error;
 mod ondisk_format;
 mod options;
@@ -35,18 +35,17 @@ mod utils;
 pub mod reader;
 pub mod writer;
 
+pub use reader::ConcurrentSSTableReader;
 pub use reader::MmapUncompressedSSTableReader;
 pub use reader::SSTableReader;
-pub use reader::ConcurrentSSTableReader;
 
 pub use writer::RawSSTableWriter;
 pub use writer::SSTableWriterV2;
 
-pub use result::Result;
 pub use error::{Error, INVALID_DATA};
 pub use options::*;
+pub use result::Result;
 pub use types::*;
-
 
 /// A convenience function to write a btree map to a file.
 ///
@@ -94,8 +93,7 @@ mod tests {
     fn test_basic_sanity(options: WriteOptions, filename: &str) {
         write_basic_map(filename, options);
         let mut reader =
-            reader::SSTableReader::new_with_options(filename, &ReadOptions::default())
-                .unwrap();
+            reader::SSTableReader::new_with_options(filename, &ReadOptions::default()).unwrap();
 
         assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
         assert_eq!(reader.get(b"bar").unwrap(), Some(b"some bar" as &[u8]));
@@ -105,11 +103,9 @@ mod tests {
     fn test_basic_sanity_threads(options: WriteOptions, filename: &str) {
         write_basic_map(filename, options);
 
-        let reader = reader::ConcurrentSSTableReader::new_with_options(
-            filename,
-            &ReadOptions::default(),
-        )
-        .unwrap();
+        let reader =
+            reader::ConcurrentSSTableReader::new_with_options(filename, &ReadOptions::default())
+                .unwrap();
 
         crossbeam::scope(|s| {
             s.spawn(|_| {

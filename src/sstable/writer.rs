@@ -11,14 +11,13 @@ use std::path::Path;
 use bincode;
 use bloomfilter::Bloom;
 
-use super::compression;
 use super::compress_ctx_writer::*;
+use super::compression;
 use super::ondisk_format::*;
 use super::options::*;
 use super::poswriter::PosWriter;
 use super::result::Result;
 use super::types::*;
-
 
 /// Represents an SSTable writer.
 pub trait RawSSTableWriter {

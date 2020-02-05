@@ -1,14 +1,14 @@
 use super::compression::Uncompress;
 use super::concurrent_lru::ConcurrentLRUCache;
-use super::{error, page_cache, Result};
 use super::options::ReadCache;
+use super::{error, page_cache, Result};
 
 use bytes::Bytes;
 use nix::sys::uio::pread;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
-use std::convert::TryFrom;
 
 fn pread_exact(fd: RawFd, mut offset: u64, length: u64) -> Result<Vec<u8>> {
     // if this was mmaped, there will be no truncation.
@@ -91,8 +91,7 @@ impl ConcurrentPageCache for Box<dyn ConcurrentPageCache + Send + Sync> {
 impl<PC, U> ConcurrentPageCache for WrappedCache<PC, U>
 where
     U: Uncompress,
-    PC: ConcurrentPageCache
-,
+    PC: ConcurrentPageCache,
 {
     fn get_chunk(&self, offset: u64, length: u64) -> Result<Bytes> {
         self.caches.get_or_insert(offset, || {

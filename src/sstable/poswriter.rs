@@ -9,10 +9,7 @@ pub struct PosWriter<W> {
 
 impl<W> PosWriter<W> {
     pub fn new(w: W, offset: u64) -> Self {
-        PosWriter {
-            w,
-            offset,
-        }
+        PosWriter { w, offset }
     }
     pub fn current_offset(&self) -> u64 {
         self.offset

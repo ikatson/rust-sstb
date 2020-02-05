@@ -1,11 +1,11 @@
 //! Traits for caching the results of uncompression and reading disk pages.
 
-use std::io::{Read, Seek, SeekFrom};
 use std::convert::TryFrom;
+use std::io::{Read, Seek, SeekFrom};
 
 use super::compression::Uncompress;
-use super::{error, Result};
 use super::options::ReadCache;
+use super::{error, Result};
 
 use lru::LruCache;
 
