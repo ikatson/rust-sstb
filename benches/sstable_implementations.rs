@@ -47,7 +47,7 @@ impl TestState {
     fn write_sstable(&self, filename: &str, write_opts: WriteOptions) -> Result<()> {
         let mut iter = self.sorted_iter.clone();
 
-        let mut writer = writer::SSTableWriterV1::new_with_options(filename, write_opts)?;
+        let mut writer = writer::SSTableWriterV2::new_with_options(filename, write_opts)?;
 
         while let Some(key) = iter.next() {
             writer.set(key, key)?;

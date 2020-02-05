@@ -2,11 +2,28 @@ use super::types::Compression;
 
 use lru::LruCache;
 
+// The configuration for the bloom filter.
+#[derive(Debug, Copy, Clone)]
+pub struct BloomConfig {
+    pub bitmap_size: usize,
+    pub items_count: usize,
+}
+
+impl Default for BloomConfig {
+    fn default() -> Self {
+        return Self{
+            bitmap_size: 1_000_000,
+            items_count: 1_000_000,
+        }
+    }
+}
+
 /// Options for writing sstables.
 #[derive(Debug, Copy, Clone)]
 pub struct WriteOptions {
     pub compression: Compression,
     pub flush_every: usize,
+    pub bloom: BloomConfig,
 }
 
 impl WriteOptions {
@@ -23,6 +40,7 @@ impl Default for WriteOptions {
         WriteOptions {
             compression: Compression::None,
             flush_every: 4096,
+            bloom: BloomConfig::default()
         }
     }
 }
@@ -33,6 +51,7 @@ pub struct WriteOptionsBuilder {
     pub compression: Compression,
     /// How often to store the records in the index.
     pub flush_every: usize,
+    pub bloom: BloomConfig,
 }
 
 impl WriteOptionsBuilder {
@@ -41,6 +60,7 @@ impl WriteOptionsBuilder {
         Self {
             compression: default.compression,
             flush_every: default.flush_every,
+            bloom: default.bloom,
         }
     }
     pub fn compression(&mut self, compression: Compression) -> &mut Self {
@@ -51,10 +71,15 @@ impl WriteOptionsBuilder {
         self.flush_every = flush_every;
         self
     }
+    pub fn bloom(&mut self, bloom: BloomConfig) -> &mut Self {
+        self.bloom = bloom;
+        self
+    }
     pub fn build(&self) -> WriteOptions {
         WriteOptions {
             compression: self.compression,
             flush_every: self.flush_every,
+            bloom: self.bloom,
         }
     }
 }

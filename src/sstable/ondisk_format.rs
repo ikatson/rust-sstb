@@ -84,15 +84,24 @@ impl KVOffset {
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
-pub struct MetaV1_0 {
+pub struct BloomV2_0 {
+    pub bitmap_bits: u64,
+    pub k_num: u32,
+    pub sip_keys: [(u64, u64); 2],
+}
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct MetaV2_0 {
     pub data_len: u64,
     pub index_len: u64,
+    pub bloom_len: u64,
     pub items: u64,
     pub compression: Compression,
     // updating this field is done as the last step.
     // it's presence indicates that the file is good.
     pub finished: bool,
     pub checksum: u32,
+    pub bloom: BloomV2_0,
 }
 
 
@@ -103,7 +112,7 @@ pub struct MetaV1_0 {
 /// Returns the start and end index of the value.
 ///
 /// TODO: this probably belongs in "ondisk" for version V1.
-pub fn find_value_offset_v1(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>> {
+pub fn find_value_offset_v2(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usize)>> {
     macro_rules! buf_get {
         ($x:expr) => {{
             buf.get($x).ok_or(INVALID_DATA)?

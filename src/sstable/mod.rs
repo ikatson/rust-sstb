@@ -40,7 +40,7 @@ pub use reader::SSTableReader;
 pub use reader::ConcurrentSSTableReader;
 
 pub use writer::RawSSTableWriter;
-pub use writer::SSTableWriterV1;
+pub use writer::SSTableWriterV2;
 
 pub use result::Result;
 pub use error::{Error, INVALID_DATA};
@@ -70,7 +70,7 @@ pub fn write_btree_map<K: AsRef<[u8]>, V: AsRef<[u8]>, P: AsRef<Path>>(
     options: Option<WriteOptions>,
 ) -> Result<()> {
     let options = options.unwrap_or_default();
-    let mut writer = writer::SSTableWriterV1::new_with_options(filename, options)?;
+    let mut writer = writer::SSTableWriterV2::new_with_options(filename, options)?;
 
     for (key, value) in map.iter() {
         writer.set(key.as_ref(), value.as_ref())?;

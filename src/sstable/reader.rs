@@ -32,7 +32,7 @@ use super::options::*;
 use super::types::*;
 
 enum MetaData {
-    V1_0(MetaV1_0),
+    V2_0(MetaV2_0),
 }
 
 struct MetaResult {
@@ -54,9 +54,9 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     }
     let version: Version = bincode::deserialize_from(&mut reader)?;
     let meta = match version {
-        VERSION_10 => {
-            let meta: MetaV1_0 = bincode::deserialize_from(&mut reader)?;
-            MetaData::V1_0(meta)
+        VERSION_20 => {
+            let meta: MetaV2_0 = bincode::deserialize_from(&mut reader)?;
+            MetaData::V2_0(meta)
         }
         _ => return Err(Error::UnsupportedVersion(version)),
     };
@@ -193,7 +193,7 @@ struct InnerReader {
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
     page_cache: Box<dyn page_cache::PageCache>,
-    meta: MetaV1_0,
+    meta: MetaV2_0,
     data_start: u64,
 }
 
@@ -206,10 +206,11 @@ impl InnerReader {
     ) -> Result<Self> {
         #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
-            MetaData::V1_0(meta) => meta,
+            MetaData::V2_0(meta) => meta,
         };
 
         let index_start = data_start + (meta.data_len as u64);
+        let index_end = index_start + meta.index_len;
 
         file.seek(SeekFrom::Start(index_start))?;
 
@@ -230,19 +231,19 @@ impl InnerReader {
                 Some(mmap) => Box::new(MemIndex::from_static_buf(
                     // if it was mmaped, it won't truncate
                     #[allow(clippy::cast_possible_truncation)]
-                    &mmap[index_start as usize..],
+                    &mmap[index_start as usize..index_end as usize],
                     meta.index_len,
                 )?),
-                None => Box::new(OwnedIndex::from_reader(&mut file)?),
+                None => Box::new(OwnedIndex::from_reader((&mut file).take(meta.index_len))?),
             },
             Compression::Zlib => {
                 // does not make sense to use mmap for index as we are not going to access
                 // the pages anyway.
-                let reader = flate2::read::ZlibDecoder::new(&mut file);
+                let reader = flate2::read::ZlibDecoder::new((&mut file).take(meta.index_len));
                 Box::new(OwnedIndex::from_reader(reader)?)
             }
             Compression::Snappy => {
-                let reader = snap::Reader::new(&mut file);
+                let reader = snap::Reader::new((&mut file).take(meta.index_len));
                 Box::new(OwnedIndex::from_reader(reader)?)
             }
         };
@@ -288,7 +289,7 @@ impl InnerReader {
         };
 
         let chunk = self.page_cache.get_chunk(offset, right_bound - offset)?;
-        Ok(find_value_offset_v1(chunk, key)?.map(|(start, end)| {
+        Ok(find_value_offset_v2(chunk, key)?.map(|(start, end)| {
             &chunk[start..end]
         }))
     }
@@ -299,7 +300,7 @@ struct ConcurrentInnerReader {
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
     page_cache: Box<dyn concurrent_page_cache::ConcurrentPageCache + Sync + Send>,
-    meta: MetaV1_0,
+    meta: MetaV2_0,
     data_start: u64,
 }
 
@@ -312,7 +313,7 @@ impl ConcurrentInnerReader {
     ) -> Result<Self> {
         #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
-            MetaData::V1_0(meta) => meta,
+            MetaData::V2_0(meta) => meta,
         };
 
         let index_start = data_start + (meta.data_len as u64);
@@ -336,19 +337,19 @@ impl ConcurrentInnerReader {
                 Some(mmap) => Box::new(MemIndex::from_static_buf(
                     // if it was mmaped, it won't truncate
                     #[allow(clippy::cast_possible_truncation)]
-                    &mmap[index_start as usize..],
+                    &mmap[index_start as usize..(index_start + meta.index_len) as usize],
                     meta.index_len,
                 )?),
-                None => Box::new(OwnedIndex::from_reader(&mut file)?),
+                None => Box::new(OwnedIndex::from_reader((&mut file).take(meta.index_len))?),
             },
             Compression::Zlib => {
                 // does not make sense to use mmap for index as we are not going to access
                 // the pages anyway.
-                let reader = flate2::read::ZlibDecoder::new(&mut file);
+                let reader = flate2::read::ZlibDecoder::new((&mut file).take(meta.index_len));
                 Box::new(OwnedIndex::from_reader(reader)?)
             }
             Compression::Snappy => {
-                let reader = snap::Reader::new(&mut file);
+                let reader = snap::Reader::new((&mut file).take(meta.index_len));
                 Box::new(OwnedIndex::from_reader(reader)?)
             }
         };
@@ -400,7 +401,7 @@ impl ConcurrentInnerReader {
         };
 
         let chunk: Bytes = self.page_cache.get_chunk(offset, right_bound - offset)?;
-        if let Some((start, end)) = find_value_offset_v1(&chunk, key)? {
+        if let Some((start, end)) = find_value_offset_v2(&chunk, key)? {
             Ok(Some(chunk.slice(start..end)))
         } else {
             Ok(None)
@@ -485,7 +486,7 @@ impl MmapUncompressedSSTableReader {
 
         #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
-            MetaData::V1_0(meta) => meta,
+            MetaData::V2_0(meta) => meta,
         };
 
         if meta.compression != Compression::None {
@@ -505,7 +506,7 @@ impl MmapUncompressedSSTableReader {
 
         // if it was mmaped, it won't truncate
         #[allow(clippy::cast_possible_truncation)]
-        let index = MemIndex::from_static_buf(&mmap_buf[index_start as usize..], meta.index_len)?;
+        let index = MemIndex::from_static_buf(&mmap_buf[index_start as usize..(index_start+meta.index_len) as usize], meta.index_len)?;
         Ok(Self {
             mmap,
             index,
@@ -524,6 +525,6 @@ impl MmapUncompressedSSTableReader {
         #[allow(clippy::cast_possible_truncation)]
         let buf = &self.mmap[offset as usize..right_bound as usize];
 
-        Ok(find_value_offset_v1(buf, key)?.map(|(start, end)| &buf[start..end]))
+        Ok(find_value_offset_v2(buf, key)?.map(|(start, end)| &buf[start..end]))
     }
 }

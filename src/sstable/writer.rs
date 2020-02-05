@@ -9,6 +9,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
 use bincode;
+use bloomfilter::Bloom;
 
 use super::compression;
 use super::compress_ctx_writer::*;
@@ -30,27 +31,28 @@ pub trait RawSSTableWriter {
     fn close(self) -> Result<()>;
 }
 
-/// SSTableWriterV1 writes SSTables to disk.
+/// SSTableWriterV2 writes SSTables to disk.
 ///
 /// ```
-/// use sstb::sstable::{SSTableWriterV1, RawSSTableWriter};
-/// let mut writer = SSTableWriterV1::new("/tmp/some-sstable").unwrap();
+/// use sstb::sstable::{SSTableWriterV2, RawSSTableWriter};
+/// let mut writer = SSTableWriterV2::new("/tmp/some-sstable").unwrap();
 ///
 /// // Note that keys MUST be in sorted order.
 /// writer.set(b"aaa", b"some value for aaa");
 /// writer.set(b"zzz", b"some value for zzz");
 /// writer.finish().unwrap();
 /// ```
-pub struct SSTableWriterV1 {
+pub struct SSTableWriterV2 {
     file: PosWriter<Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>>>,
-    meta: MetaV1_0,
+    meta: MetaV2_0,
     meta_start: u64,
     data_start: u64,
     flush_every: usize,
     sparse_index: Vec<(Vec<u8>, u64)>,
+    bloom: Bloom<[u8]>,
 }
 
-impl SSTableWriterV1 {
+impl SSTableWriterV2 {
     /// Make a new SSTable writer with default options.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::new_with_options(path, WriteOptions::default())
@@ -61,11 +63,11 @@ impl SSTableWriterV1 {
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write_all(MAGIC)?;
 
-        bincode::serialize_into(&mut writer, &VERSION_10)?;
+        bincode::serialize_into(&mut writer, &VERSION_20)?;
 
         let meta_start = writer.current_offset() as u64;
 
-        let mut meta = MetaV1_0::default();
+        let mut meta = MetaV2_0::default();
         meta.compression = options.compression;
 
         bincode::serialize_into(&mut writer, &meta)?;
@@ -94,17 +96,19 @@ impl SSTableWriterV1 {
             data_start,
             flush_every: options.flush_every,
             sparse_index: Vec::new(),
+            bloom: Bloom::new(options.bloom.bitmap_size, options.bloom.items_count),
         })
     }
     /// Write all the metadata to the sstable, and flush it.
     pub fn finish(self) -> Result<()> {
         match self {
-            SSTableWriterV1 {
+            SSTableWriterV2 {
                 file,
                 mut meta,
                 meta_start,
                 data_start,
                 sparse_index,
+                bloom,
                 ..
             } => {
                 let mut writer = file.into_inner();
@@ -113,11 +117,16 @@ impl SSTableWriterV1 {
                     KVOffset::new(key.len(), offset)?.serialize_into(&mut writer)?;
                     writer.write_all(&key)?;
                 }
-                let index_len =
-                    self.data_start + writer.reset_compression_context()? as u64 - index_start;
+                let bloom_start = self.data_start + writer.reset_compression_context()? as u64;
+                writer.write_all(&bloom.bitmap())?;
+                let end = self.data_start + writer.reset_compression_context()? as u64;
                 meta.finished = true;
-                meta.index_len = index_len;
+                meta.index_len = bloom_start - index_start;
                 meta.data_len = index_start - data_start;
+                meta.bloom_len = end - bloom_start;
+                meta.bloom.bitmap_bits = bloom.number_of_bits();
+                meta.bloom.k_num = bloom.number_of_hash_functions();
+                meta.bloom.sip_keys = bloom.sip_keys();
                 let mut writer = writer.into_inner()?.into_inner();
                 writer.seek(SeekFrom::Start(meta_start as u64))?;
                 bincode::serialize_into(&mut writer, &meta)?;
@@ -127,7 +136,7 @@ impl SSTableWriterV1 {
     }
 }
 
-impl RawSSTableWriter for SSTableWriterV1 {
+impl RawSSTableWriter for SSTableWriterV2 {
     #[allow(clippy::collapsible_if)]
     fn set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         // If the current offset is too high, flush, and add this record to the index.
@@ -146,6 +155,7 @@ impl RawSSTableWriter for SSTableWriterV1 {
                     .push((key.to_owned(), total_offset as u64));
             }
         }
+        self.bloom.set(key);
         KVLength::new(key.len(), value.len())?.serialize_into(&mut self.file)?;
         self.file.write_all(key)?;
         self.file.write_all(value)?;
