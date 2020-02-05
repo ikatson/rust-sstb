@@ -26,6 +26,38 @@
 //! guarantees or any other guarantees about this library.
 //!
 //! Use at your own risk.
+//!
+//! ## How to use
+//!
+//! For writing SSTables, refer to [writer documentation](./sstable/writer/index.html)
+//!
+//! For reading SSTables, refer to [reader documentation](./sstable/reader/index.html)
+//!
+//! ## Quickstart
+//!
+//! This example will write then read the sstable with all default options.
+//!
+//! For more efficient reading code, refer to [reader documentation](./sstable/reader/index.html).
+//!
+//! ```
+//! use sstb::*;
+//! use std::collections::BTreeMap;
+//!
+//! let filename = "/tmp/example-sstable";
+//! let mut map = BTreeMap::new();
+//! map.insert(b"foo", b"some foo");
+//! map.insert(b"bar", b"some bar");
+//!
+//! write_btree_map(&map, filename, None).unwrap();
+//!
+//! let mut reader =
+//!   SSTableReader::new_with_options(filename, &ReadOptions::default())
+//!   .unwrap();
+
+//! assert_eq!(reader.get(b"foo").unwrap(), Some(b"some foo" as &[u8]));
+//! assert_eq!(reader.get(b"bar").unwrap(), Some(b"some bar" as &[u8]));
+//! assert_eq!(reader.get(b"foobar").unwrap(), None);
+//! ```
 
 pub mod sstable;
 pub mod utils;

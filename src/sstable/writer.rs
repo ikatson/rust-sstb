@@ -1,4 +1,6 @@
 //! SSTable writing facilities.
+//!
+//! Look at the documentation for available writers for usage examples.
 
 use std::fs::File;
 use std::io::BufWriter;

@@ -1,4 +1,17 @@
 //! SSTable reading facilities.
+//!
+//! There are 3 different types of readers inside. They can't be joined into the same Reader trait
+//! because of different APIs.
+//!
+//! Here's how to choose the reader for your use case:
+//!
+//! - is your sstable uncompressed?
+//!
+//!   If yes, use `MmapUncompressedSSTableReader`. Otherwise, keep going through the questions.
+//!
+//! - do you need concurrent use from multiple threads?
+//!
+//!   If yes, use `ConcurrentSSTableReader`. Otherwise, use `SSTableReader`
 
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
@@ -281,7 +294,7 @@ impl InnerReader {
     }
 }
 
-struct ThreadSafeInnerReader {
+struct ConcurrentInnerReader {
     index: Box<dyn Index + Sync + Send>,
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
@@ -290,7 +303,7 @@ struct ThreadSafeInnerReader {
     data_start: u64,
 }
 
-impl ThreadSafeInnerReader {
+impl ConcurrentInnerReader {
     pub fn new(
         mut file: File,
         data_start: u64,
@@ -412,23 +425,25 @@ impl SSTableReader {
     }
 }
 
-/// A thread-safe multi-threaded reader.
+/// A reader that can be used efficiently from multiple threads.
 ///
 /// There is internal mutability inside. The LRU caches are sharded into multiple locks.
 ///
 /// You get `Bytes` references in return instead of slices, so that atomic reference counting
 /// can happen behind the scenes for properly tracking chunks still in-use.
 ///
-/// If you want to use this with multiple threads just put it into an `Arc` without Mutex'es.
+/// If you want to use this with multiple threads just put it into an `Arc`.
 ///
 /// If your data is uncompressed, you probably better use `MmapUncompressedSSTableReader`,
-/// which is a lot simpler. However it needs to be confirmed in benchmarks. There are benchmarks,
+/// which is a lot simpler wait-free implementation.
+///
+/// However mmap's one superiority needs to be confirmed in benchmarks. There are benchmarks,
 /// but conclusions are TBD.
-pub struct ThreadSafeSSTableReader {
-    inner: ThreadSafeInnerReader,
+pub struct ConcurrentSSTableReader {
+    inner: ConcurrentInnerReader,
 }
 
-impl ThreadSafeSSTableReader {
+impl ConcurrentSSTableReader {
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
         Self::new_with_options(filename, &ReadOptions::default())
     }
@@ -437,7 +452,7 @@ impl ThreadSafeSSTableReader {
         let mut file = File::open(filename)?;
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
-        let inner = ThreadSafeInnerReader::new(file, data_start, meta, opts)?;
+        let inner = ConcurrentInnerReader::new(file, data_start, meta, opts)?;
         Ok(Self { inner })
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {

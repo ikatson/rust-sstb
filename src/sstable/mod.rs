@@ -37,7 +37,7 @@ pub mod writer;
 
 pub use reader::MmapUncompressedSSTableReader;
 pub use reader::SSTableReader;
-pub use reader::ThreadSafeSSTableReader;
+pub use reader::ConcurrentSSTableReader;
 
 pub use writer::RawSSTableWriter;
 pub use writer::SSTableWriterV1;
@@ -105,7 +105,7 @@ mod tests {
     fn test_basic_sanity_threads(options: WriteOptions, filename: &str) {
         write_basic_map(filename, options);
 
-        let reader = reader::ThreadSafeSSTableReader::new_with_options(
+        let reader = reader::ConcurrentSSTableReader::new_with_options(
             filename,
             &ReadOptions::default(),
         )
