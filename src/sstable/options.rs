@@ -121,6 +121,7 @@ impl Default for ReadCache {
 pub struct ReadOptionsBuilder {
     pub cache: Option<ReadCache>,
     pub use_mmap: bool,
+    pub use_bloom: bool,
     pub thread_buckets: Option<usize>,
 }
 
@@ -130,6 +131,7 @@ impl ReadOptionsBuilder {
         Self {
             cache: default.cache,
             use_mmap: default.use_mmap,
+            use_bloom: default.use_bloom,
             thread_buckets: default.thread_buckets,
         }
     }
@@ -141,6 +143,10 @@ impl ReadOptionsBuilder {
         self.use_mmap = use_mmap;
         self
     }
+    pub fn use_bloom(&mut self, use_bloom: bool) -> &mut Self {
+        self.use_bloom = use_bloom;
+        self
+    }
     pub fn thread_buckets(&mut self, thread_buckets: Option<usize>) -> &mut Self {
         self.thread_buckets = thread_buckets;
         self
@@ -150,6 +156,7 @@ impl ReadOptionsBuilder {
             cache: self.cache,
             use_mmap: self.use_mmap,
             thread_buckets: self.thread_buckets,
+            use_bloom: self.use_bloom,
         }
     }
 }
@@ -170,6 +177,10 @@ pub struct ReadOptions {
     /// How many buckets to split the caches into for efficient
     /// thread-safe access.
     pub thread_buckets: Option<usize>,
+    // Set if you want to use bloom filters during lookups.
+    // This has a performance penalty for positive lookups,
+    // but if you have a lot of maybe-negative, it should make things faster.
+    pub use_bloom: bool,
 }
 
 impl ReadOptions {
@@ -187,6 +198,7 @@ impl Default for ReadOptions {
             cache: Some(ReadCache::default()),
             use_mmap: true,
             thread_buckets: Some(num_cpus::get()),
+            use_bloom: true,
         }
     }
 }
