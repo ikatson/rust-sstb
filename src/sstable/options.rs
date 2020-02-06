@@ -132,3 +132,29 @@ impl Default for ReadOptions {
         }
     }
 }
+
+/// Options for "get" method.
+#[derive(Copy, Clone, Debug)]
+pub struct GetOptions {
+    /// Set this if you want to use the bloom filter to speed
+    /// up negative lookups at a cost for positive lookup.
+    pub use_bloom: bool,
+}
+
+impl GetOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn use_bloom(&mut self, use_bloom: bool) -> &mut Self {
+        self.use_bloom = use_bloom;
+        self
+    }
+}
+
+impl Default for GetOptions {
+    fn default() -> Self {
+        Self {
+            use_bloom: true,
+        }
+    }
+}

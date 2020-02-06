@@ -211,6 +211,7 @@ struct InnerReader {
     page_cache: Box<dyn page_cache::PageCache>,
     meta: MetaV2_0,
     data_start: u64,
+    use_bloom_default: bool,
     bloom: Bloom<[u8]>,
 }
 
@@ -318,11 +319,13 @@ impl InnerReader {
             data_start,
             meta,
             bloom,
+            use_bloom_default: opts.use_bloom
         })
     }
 
-    fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
-        if !self.bloom.check(key) {
+    fn get_with_options(&mut self, key: &[u8], options: Option<GetOptions>) -> Result<Option<&[u8]>> {
+        let use_bloom = options.map(|o| o.use_bloom).unwrap_or(self.use_bloom_default);
+        if use_bloom && !self.bloom.check(key) {
             return Ok(None);
         }
         let index_start = self.data_start + self.meta.data_len as u64;
@@ -334,6 +337,10 @@ impl InnerReader {
         let chunk = self.page_cache.get_chunk(offset, right_bound - offset)?;
         Ok(find_value_offset_v2(chunk, key)?.map(|(start, end)| &chunk[start..end]))
     }
+
+    fn get(&mut self, key: &[u8]) -> Result<Option<&[u8]>> {
+        self.get_with_options(key, None)
+    }
 }
 
 struct ConcurrentInnerReader {
@@ -343,6 +350,7 @@ struct ConcurrentInnerReader {
     page_cache: Box<dyn concurrent_page_cache::ConcurrentPageCache + Sync + Send>,
     meta: MetaV2_0,
     data_start: u64,
+    use_bloom_default: bool,
     bloom: Bloom<[u8]>,
 }
 
@@ -459,11 +467,17 @@ impl ConcurrentInnerReader {
             data_start,
             meta,
             bloom,
+            use_bloom_default: opts.use_bloom,
         })
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
-        if !self.bloom.check(key) {
+        self.get_with_options(key, None)
+    }
+
+    fn get_with_options(&self, key: &[u8], options: Option<GetOptions>) -> Result<Option<Bytes>> {
+        let use_bloom = options.map(|o| o.use_bloom).unwrap_or(self.use_bloom_default);
+        if use_bloom && !self.bloom.check(key) {
             return Ok(None);
         }
         let index_start = self.data_start + self.meta.data_len as u64;
@@ -546,13 +560,24 @@ pub struct MmapUncompressedSSTableReader {
     index_start: u64,
     mmap: memmap::Mmap,
     index: MemIndex,
+    use_bloom_default: bool,
     bloom: Bloom<[u8]>,
 }
 
 impl MmapUncompressedSSTableReader {
-    /// Construct a new mmap reader from a file.
-    /// Returns `Error::CantUseCompressedFileWithMultiThreadedMmap` if you try to open a compressed file with it.
+    /// Construct a new mmap reader from a file with default options.
+    ///
+    /// `new_with_options` has more details.
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
+        Self::new_with_options(filename, &ReadOptions::default())
+    }
+
+    /// Construct a new mmap reader from a file.
+    ///
+    /// All options except "use_bloom" are ignored.
+    ///
+    /// Returns `Error::CantUseCompressedFileWithMultiThreadedMmap` if you try to open a compressed file with it.
+    pub fn new_with_options<P: AsRef<Path>>(filename: P, opts: &ReadOptions) -> Result<Self> {
         let mut file = File::open(filename)?;
         let meta = read_metadata(&mut file)?;
         let data_start = meta.offset as u64;
@@ -595,12 +620,18 @@ impl MmapUncompressedSSTableReader {
             index,
             index_start,
             bloom,
+            use_bloom_default: opts.use_bloom,
         })
     }
 
-    /// Get a key from the sstable.
-    pub fn get<'a, 'b>(&'a self, key: &'b [u8]) -> Result<Option<&'a [u8]>> {
-        if !self.bloom.check(key) {
+    pub fn get<'a>(&'a self, key: &[u8]) -> Result<Option<&'a [u8]>> {
+        self.get_with_options(key, None)
+    }
+
+    /// Get a key from the sstable with options.
+    pub fn get_with_options<'a>(&'a self, key: &[u8], options: Option<GetOptions>) -> Result<Option<&'a [u8]>> {
+        let use_bloom = options.map(|o| o.use_bloom).unwrap_or(self.use_bloom_default);
+        if use_bloom && !self.bloom.check(key) {
             return Ok(None);
         }
         let (offset, right_bound) = match self.index.find_bounds(key, self.index_start) {
