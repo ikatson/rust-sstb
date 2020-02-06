@@ -4,43 +4,60 @@ use sstb::sstable::*;
 use sstb::utils::SortedBytesIterator;
 
 use rand::rngs::SmallRng;
+use rand::RngCore;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use std::iter::Iterator;
 
 use rayon::prelude::*;
 
+const ANY_BYTE: u8 = 130;
+
+struct KV {
+    key: Vec<u8>,
+    is_present: bool,
+}
+
 struct TestState {
     sorted_iter: SortedBytesIterator,
-    shuffled: Vec<Vec<u8>>,
+    shuffled: Vec<KV>,
 }
 
 impl TestState {
     fn new(len: usize, limit: usize) -> Self {
         let mut it = SortedBytesIterator::new(len, limit).unwrap();
-        let shuffled = {
-            let mut shuffled: Vec<Vec<u8>> = Vec::with_capacity(limit);
+        let (shuffled, rng) = {
+            let mut shuffled: Vec<KV> = Vec::with_capacity(limit * 2);
+            let mut small_rng = SmallRng::from_seed(*b"seedseedseedseed");
+            let missing_threshold = u32::max_value() / 2;
             while let Some(value) = it.next() {
-                shuffled.push(value.into())
+                if small_rng.next_u32() > missing_threshold {
+                    let mut val = value.to_owned();
+                    // whatever we push, it will alter the length and will be missing
+                    val.push(ANY_BYTE);
+                    shuffled.push(KV{key: val, is_present: false});
+                }
+                shuffled.push(KV{key: value.into(), is_present: true})
             }
-            let mut small_rng = SmallRng::from_entropy();
+
             (&mut shuffled).shuffle(&mut small_rng);
-            shuffled
+            (shuffled, small_rng)
         };
 
         it.reset();
 
         Self {
             sorted_iter: it,
-            shuffled: shuffled,
+            shuffled,
+            rng,
         }
     }
 
-    fn get_shuffled_input(&self) -> impl Iterator<Item = &[u8]> {
-        self.shuffled.iter().map(|v| v as &[u8])
+    fn get_shuffled_input(&self) -> impl Iterator<Item = &KV> {
+        self.shuffled.iter()
     }
 
-    fn get_shuffled_input_ref(&self) -> &[Vec<u8>] {
+    fn get_shuffled_input_ref(&self) -> &[KV] {
         &self.shuffled
     }
 
@@ -74,16 +91,21 @@ fn criterion_benchmark(c: &mut Criterion) {
         .unwrap();
 
     // Benchmark the full mmap implementation, that is thread safe.
-
     c.bench_function(
-        &format!("full mmap,flush=4096 method=get items={}", items),
+        &format!("MmapUncompressedSSTableReader,flush=4096 method=get items={}", items),
         |b| {
             b.iter_batched(
                 || MmapUncompressedSSTableReader::new(filename).unwrap(),
                 |reader| {
-                    for key in state.get_shuffled_input() {
+                    for kv in state.get_shuffled_input() {
+                        let KV{key, is_present} = &kv;
+                        let key = key as &[u8];
                         let value = reader.get(key).unwrap();
-                        assert_eq!(value, Some(key));
+                        if *is_present {
+                            assert_eq!(value, Some(key));
+                        } else {
+                            assert_eq!(value, None);
+                        }
                     }
                 },
                 BatchSize::LargeInput,
@@ -93,16 +115,22 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function(
         &format!(
-            "full mmap,flush=4096 method=get_multithreaded items={}",
+            "MmapUncompressedSSTableReader,flush=4096 method=get_multithreaded items={}",
             items
         ),
         |b| {
             b.iter_batched(
                 || MmapUncompressedSSTableReader::new(filename).unwrap(),
                 |reader| {
-                    state.get_shuffled_input_ref().par_iter().for_each(|key| {
+                    state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                        let KV{key, is_present} = &kv;
+                        let key = key as &[u8];
                         let value = reader.get(key).unwrap();
-                        assert_eq!(value, Some(key as &[u8]));
+                        if *is_present {
+                            assert_eq!(value, Some(key));
+                        } else {
+                            assert_eq!(value, None);
+                        }
                     });
                 },
                 BatchSize::LargeInput,
@@ -116,6 +144,13 @@ fn criterion_benchmark(c: &mut Criterion) {
             make_write_opts(Compression::None, 4096),
             ReadOptions::default().cache(None).use_mmap(true).clone(),
         ),
+
+        (
+            "mmap,compress=none,flush=4096,nocache,use_bloom=false",
+            make_write_opts(Compression::None, 4096),
+            ReadOptions::default().cache(None).use_mmap(true).use_bloom(false).clone(),
+        ),
+
         (
             "no_mmap,compress=none,flush=4096,nocache",
             make_write_opts(Compression::None, 4096),
@@ -157,9 +192,15 @@ fn criterion_benchmark(c: &mut Criterion) {
             b.iter_batched(
                 || SSTableReader::new_with_options(filename, &read_opts).unwrap(),
                 |mut reader| {
-                    for key in state.get_shuffled_input() {
+                    for kv in state.get_shuffled_input() {
+                        let KV{key, is_present} = &kv;
+                        let key = key as &[u8];
                         let value = reader.get(key).unwrap();
-                        assert_eq!(value, Some(key));
+                        if *is_present {
+                            assert_eq!(value, Some(key));
+                        } else {
+                            assert_eq!(value, None);
+                        }
                     }
                 },
                 BatchSize::LargeInput,
@@ -172,9 +213,15 @@ fn criterion_benchmark(c: &mut Criterion) {
                 b.iter_batched(
                     || ConcurrentSSTableReader::new_with_options(filename, &read_opts).unwrap(),
                     |reader| {
-                        state.get_shuffled_input_ref().par_iter().for_each(|key| {
+                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                            let KV{key, is_present} = &kv;
+                            let key = key as &[u8];
                             let value = reader.get(key).unwrap();
-                            assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key.as_ref()));
+                            if *is_present {
+                                assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key));
+                            } else {
+                                assert_eq!(value, None);
+                            }
                         });
                     },
                     BatchSize::LargeInput,
