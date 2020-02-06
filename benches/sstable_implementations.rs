@@ -44,7 +44,7 @@ impl TestState {
         &self.shuffled
     }
 
-    fn write_sstable(&self, filename: &str, write_opts: WriteOptions) -> Result<()> {
+    fn write_sstable(&self, filename: &str, write_opts: &WriteOptions) -> Result<()> {
         let mut iter = self.sorted_iter.clone();
 
         let mut writer = writer::SSTableWriterV2::new_with_options(filename, write_opts)?;
@@ -70,7 +70,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let filename = "/tmp/sstable";
     state
-        .write_sstable(filename, make_write_opts(Compression::None, 4096))
+        .write_sstable(filename, &make_write_opts(Compression::None, 4096))
         .unwrap();
 
     // Benchmark the full mmap implementation, that is thread safe.
@@ -151,7 +151,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     ]
     .into_iter()
     {
-        state.write_sstable(filename, write_opts).unwrap();
+        state.write_sstable(filename, &write_opts).unwrap();
 
         c.bench_function(&format!("{},test=get,items={}", prefix, items), |b| {
             b.iter_batched(

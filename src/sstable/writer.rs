@@ -54,10 +54,10 @@ pub struct SSTableWriterV2 {
 impl SSTableWriterV2 {
     /// Make a new SSTable writer with default options.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::new_with_options(path, WriteOptions::default())
+        Self::new_with_options(path, &WriteOptions::default())
     }
     /// Make a new SSTable writer with explicit options.
-    pub fn new_with_options<P: AsRef<Path>>(path: P, options: WriteOptions) -> Result<Self> {
+    pub fn new_with_options<P: AsRef<Path>>(path: P, options: &WriteOptions) -> Result<Self> {
         let file = File::create(path)?;
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write_all(MAGIC)?;
