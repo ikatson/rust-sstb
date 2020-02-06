@@ -21,47 +21,17 @@ impl Default for BloomConfig {
 /// Options for writing sstables.
 #[derive(Debug, Copy, Clone)]
 pub struct WriteOptions {
+    /// Compression to use. The default is None.
     pub compression: Compression,
+    /// How often to store the records in the index.
     pub flush_every: usize,
+    /// Options for the bloom filter.
     pub bloom: BloomConfig,
 }
 
 impl WriteOptions {
     pub fn new() -> Self {
         Self::default()
-    }
-    pub fn builder() -> WriteOptionsBuilder {
-        WriteOptionsBuilder::new()
-    }
-}
-
-impl Default for WriteOptions {
-    fn default() -> Self {
-        WriteOptions {
-            compression: Compression::None,
-            flush_every: 4096,
-            bloom: BloomConfig::default(),
-        }
-    }
-}
-
-/// The builder for `WriteOptions`
-pub struct WriteOptionsBuilder {
-    /// Compression to use. The default is None.
-    pub compression: Compression,
-    /// How often to store the records in the index.
-    pub flush_every: usize,
-    pub bloom: BloomConfig,
-}
-
-impl WriteOptionsBuilder {
-    pub fn new() -> Self {
-        let default = WriteOptions::default();
-        Self {
-            compression: default.compression,
-            flush_every: default.flush_every,
-            bloom: default.bloom,
-        }
     }
     pub fn compression(&mut self, compression: Compression) -> &mut Self {
         self.compression = compression;
@@ -75,18 +45,15 @@ impl WriteOptionsBuilder {
         self.bloom = bloom;
         self
     }
-    pub fn build(&self) -> WriteOptions {
-        WriteOptions {
-            compression: self.compression,
-            flush_every: self.flush_every,
-            bloom: self.bloom,
-        }
-    }
 }
 
-impl Default for WriteOptionsBuilder {
+impl Default for WriteOptions {
     fn default() -> Self {
-        Self::new()
+        WriteOptions {
+            compression: Compression::None,
+            flush_every: 4096,
+            bloom: BloomConfig::default(),
+        }
     }
 }
 
@@ -117,56 +84,6 @@ impl Default for ReadCache {
     }
 }
 
-/// A builder for `ReadOptions`
-pub struct ReadOptionsBuilder {
-    pub cache: Option<ReadCache>,
-    pub use_mmap: bool,
-    pub use_bloom: bool,
-    pub thread_buckets: Option<usize>,
-}
-
-impl ReadOptionsBuilder {
-    pub fn new() -> Self {
-        let default = ReadOptions::default();
-        Self {
-            cache: default.cache,
-            use_mmap: default.use_mmap,
-            use_bloom: default.use_bloom,
-            thread_buckets: default.thread_buckets,
-        }
-    }
-    pub fn cache(&mut self, cache: Option<ReadCache>) -> &mut Self {
-        self.cache = cache;
-        self
-    }
-    pub fn use_mmap(&mut self, use_mmap: bool) -> &mut Self {
-        self.use_mmap = use_mmap;
-        self
-    }
-    pub fn use_bloom(&mut self, use_bloom: bool) -> &mut Self {
-        self.use_bloom = use_bloom;
-        self
-    }
-    pub fn thread_buckets(&mut self, thread_buckets: Option<usize>) -> &mut Self {
-        self.thread_buckets = thread_buckets;
-        self
-    }
-    pub fn build(&self) -> ReadOptions {
-        ReadOptions {
-            cache: self.cache,
-            use_mmap: self.use_mmap,
-            thread_buckets: self.thread_buckets,
-            use_bloom: self.use_bloom,
-        }
-    }
-}
-
-impl Default for ReadOptionsBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Options for reading sstables.
 #[derive(Copy, Clone, Debug)]
 pub struct ReadOptions {
@@ -187,8 +104,21 @@ impl ReadOptions {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn builder() -> ReadOptionsBuilder {
-        ReadOptionsBuilder::new()
+    pub fn cache(&mut self, cache: Option<ReadCache>) -> &mut Self {
+        self.cache = cache;
+        self
+    }
+    pub fn use_mmap(&mut self, use_mmap: bool) -> &mut Self {
+        self.use_mmap = use_mmap;
+        self
+    }
+    pub fn use_bloom(&mut self, use_bloom: bool) -> &mut Self {
+        self.use_bloom = use_bloom;
+        self
+    }
+    pub fn thread_buckets(&mut self, thread_buckets: Option<usize>) -> &mut Self {
+        self.thread_buckets = thread_buckets;
+        self
     }
 }
 

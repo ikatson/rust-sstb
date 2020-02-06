@@ -62,10 +62,10 @@ fn criterion_benchmark(c: &mut Criterion) {
     let state = TestState::new(32, items);
 
     let make_write_opts = |compression, flush| {
-        WriteOptions::builder()
+        WriteOptions::default()
             .compression(compression)
             .flush_every(flush)
-            .build()
+            .clone()
     };
 
     let filename = "/tmp/sstable";
@@ -114,36 +114,36 @@ fn criterion_benchmark(c: &mut Criterion) {
         (
             "mmap,compress=none,flush=4096,nocache",
             make_write_opts(Compression::None, 4096),
-            ReadOptions::builder().cache(None).use_mmap(true).build(),
+            ReadOptions::default().cache(None).use_mmap(true).clone(),
         ),
         (
             "no_mmap,compress=none,flush=4096,nocache",
             make_write_opts(Compression::None, 4096),
-            ReadOptions::builder().cache(None).use_mmap(false).build(),
+            ReadOptions::default().cache(None).use_mmap(false).clone(),
         ),
         (
             "no_mmap,compress=none,flush=4096,cache=unbounded",
             make_write_opts(Compression::None, 4096),
-            ReadOptions::builder()
+            ReadOptions::default()
                 .cache(Some(ReadCache::Unbounded))
                 .use_mmap(false)
-                .build(),
+                .clone(),
         ),
         (
             "mmap,compress=snappy,flush=8192,cache=unbounded",
             make_write_opts(Compression::Snappy, 8192),
-            ReadOptions::builder()
+            ReadOptions::default()
                 .cache(Some(ReadCache::Unbounded))
                 .use_mmap(true)
-                .build(),
+                .clone(),
         ),
         (
             "no_mmap,compress=snappy,flush=8192,cache=unbounded",
             make_write_opts(Compression::Snappy, 8192),
-            ReadOptions::builder()
+            ReadOptions::default()
                 .cache(Some(ReadCache::Unbounded))
                 .use_mmap(false)
-                .build(),
+                .clone(),
         ),
         // ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
         // ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
