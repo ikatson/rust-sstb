@@ -1,6 +1,17 @@
+# SSTB
+
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/ikatson/rust-sstb)
+[![Cargo](https://img.shields.io/crates/v/sstb.svg)](https://crates.io/crates/sstb)
+[![Documentation](https://docs.rs/sstb/badge.svg)](https://docs.rs/sstb)
+
+An experimental an educational attempt to write a Rust thread-safe sstables library.
+
+See the [documentation](https://docs.rs/sstb) for more details and background.
+
+
 # TODO ([x] means done)
-- [ ] open-source
-  - [ ] write README with badges
+- [-] open-source
+  - [x] write README with badges
   - [ ] Travis tests etc
 - [ ] backtraces in errors
 - [ ] range queries
@@ -27,7 +38,7 @@
     - messes up the concurrency as the hashmap becomes the contention point
       - an RWLock might help for the majority of the cases
   - even if all this is implemented, it's totally not guaranteed that it's going to be faster in the end.
-- [x] u32 keys and values, not u64
+- [x] u16 keys and u32 values, not u64, for saving space
 - [x] mmap with no compression is already multi-threaded, but the API does not
   reflect that
 - [x] zlib bounded and unbounded performs the same in benchmarks
