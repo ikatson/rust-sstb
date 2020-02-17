@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use criterion::*;
 
 use sstb::sstable::*;
 use sstb::utils::SortedBytesIterator;
@@ -139,6 +139,9 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     // Test single-threaded.
     let mut group = c.benchmark_group("method=get");
+    let plot_config = PlotConfiguration::default()
+        .summary_scale(AxisScale::Logarithmic);
+    group.plot_config(plot_config);
 
     for size in [100, 1000, 10_000, 100_000].iter() {
         let state = TestState::new(32, *size);
@@ -200,7 +203,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let size = 100_000;
     group.throughput(Throughput::Elements(size as u64));
 
-    for threads in 1..=num_cpus::get_physical() {
+    for threads in 1..=num_cpus::get() {
         let state = TestState::new(32, size);
         state
             .write_sstable(filename, &make_write_opts(Compression::None, 4096))
