@@ -131,13 +131,15 @@ fn criterion_benchmark(c: &mut Criterion) {
                 .use_mmap(false)
                 .clone(),
         ),
+
         // ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
         // ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
         // ("no_mmap,compress=zlib,flush=65536,cache=unbounded", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
     ];
 
-    // One group for the "get" function depending on size of the input.
+    // Test single-threaded.
     let mut group = c.benchmark_group("method=get");
+
     for size in [100, 1000, 10_000, 100_000].iter() {
         let state = TestState::new(32, *size);
         group.throughput(Throughput::Elements(*size as u64));
@@ -193,23 +195,24 @@ fn criterion_benchmark(c: &mut Criterion) {
     }
     group.finish();
 
-    // One group for the "get" function depending on size of the input.
+    // Test multithreaded.
     let mut group = c.benchmark_group("method=get_multithreaded, 100 000 items");
     let size = 100_000;
+    group.throughput(Throughput::Elements(size as u64));
 
-    for threads in 1..num_cpus::get() {
+    for threads in 1..=num_cpus::get_physical() {
         let state = TestState::new(32, size);
         state
             .write_sstable(filename, &make_write_opts(Compression::None, 4096))
             .unwrap();
 
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
 
         group.bench_function(
-            BenchmarkId::new(
-                "MmapUncompressedSSTableReader,flush=4096",
-                threads
-            ),
+            BenchmarkId::new("MmapUncompressedSSTableReader,flush=4096", threads),
             |b| {
                 b.iter_batched(
                     || MmapUncompressedSSTableReader::new(filename).unwrap(),
@@ -235,29 +238,26 @@ fn criterion_benchmark(c: &mut Criterion) {
         for (prefix, write_opts, read_opts) in variants.iter() {
             state.write_sstable(filename, &write_opts).unwrap();
 
-            group.bench_function(
-                BenchmarkId::new(*prefix, size),
-                |b| {
-                    b.iter_batched(
-                        || ConcurrentSSTableReader::new_with_options(filename, &read_opts).unwrap(),
-                        |reader| {
-                            pool.install(|| {
-                                state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                                    let KV { key, is_present } = &kv;
-                                    let key = key as &[u8];
-                                    let value = reader.get(key).unwrap();
-                                    if *is_present {
-                                        assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key));
-                                    } else {
-                                        assert_eq!(value, None);
-                                    }
-                                });
+            group.bench_function(BenchmarkId::new(*prefix, threads), |b| {
+                b.iter_batched(
+                    || ConcurrentSSTableReader::new_with_options(filename, &read_opts).unwrap(),
+                    |reader| {
+                        pool.install(|| {
+                            state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                                let KV { key, is_present } = &kv;
+                                let key = key as &[u8];
+                                let value = reader.get(key).unwrap();
+                                if *is_present {
+                                    assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key));
+                                } else {
+                                    assert_eq!(value, None);
+                                }
                             });
-                        },
-                        BatchSize::LargeInput,
-                    );
-                },
-            );
+                        });
+                    },
+                    BatchSize::LargeInput,
+                );
+            });
         }
     }
     group.finish();
