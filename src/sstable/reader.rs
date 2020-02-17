@@ -319,12 +319,18 @@ impl InnerReader {
             data_start,
             meta,
             bloom,
-            use_bloom_default: opts.use_bloom
+            use_bloom_default: opts.use_bloom,
         })
     }
 
-    fn get_with_options(&mut self, key: &[u8], options: Option<GetOptions>) -> Result<Option<&[u8]>> {
-        let use_bloom = options.map(|o| o.use_bloom).unwrap_or(self.use_bloom_default);
+    fn get_with_options(
+        &mut self,
+        key: &[u8],
+        options: Option<GetOptions>,
+    ) -> Result<Option<&[u8]>> {
+        let use_bloom = options
+            .map(|o| o.use_bloom)
+            .unwrap_or(self.use_bloom_default);
         if use_bloom && !self.bloom.check(key) {
             return Ok(None);
         }
@@ -476,7 +482,9 @@ impl ConcurrentInnerReader {
     }
 
     fn get_with_options(&self, key: &[u8], options: Option<GetOptions>) -> Result<Option<Bytes>> {
-        let use_bloom = options.map(|o| o.use_bloom).unwrap_or(self.use_bloom_default);
+        let use_bloom = options
+            .map(|o| o.use_bloom)
+            .unwrap_or(self.use_bloom_default);
         if use_bloom && !self.bloom.check(key) {
             return Ok(None);
         }
@@ -629,8 +637,14 @@ impl MmapUncompressedSSTableReader {
     }
 
     /// Get a key from the sstable with options.
-    pub fn get_with_options<'a>(&'a self, key: &[u8], options: Option<GetOptions>) -> Result<Option<&'a [u8]>> {
-        let use_bloom = options.map(|o| o.use_bloom).unwrap_or(self.use_bloom_default);
+    pub fn get_with_options<'a>(
+        &'a self,
+        key: &[u8],
+        options: Option<GetOptions>,
+    ) -> Result<Option<&'a [u8]>> {
+        let use_bloom = options
+            .map(|o| o.use_bloom)
+            .unwrap_or(self.use_bloom_default);
         if use_bloom && !self.bloom.check(key) {
             return Ok(None);
         }

@@ -153,8 +153,6 @@ impl GetOptions {
 
 impl Default for GetOptions {
     fn default() -> Self {
-        Self {
-            use_bloom: true,
-        }
+        Self { use_bloom: true }
     }
 }
