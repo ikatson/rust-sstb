@@ -201,7 +201,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // Test multithreaded.
     let mut group = c.benchmark_group("method=get_multithreaded, 100 000 items");
     let size = 100_000;
-    group.throughput(Throughput::Elements(size as u64));
+    // group.throughput(Throughput::Elements(size as u64));
 
     for threads in 1..=num_cpus::get() {
         let state = TestState::new(32, size);
