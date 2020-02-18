@@ -10,7 +10,8 @@ See the [documentation](https://docs.rs/sstb) for more details and background.
 
 
 # TODO ([x] means done)
-- [ ] cache=none does not work. It uses unbounded cache as default which is incorrect.
+- [ ] Prettify and publish benchmark results in the readme. For now one can "cargo bench" and look at the reports.
+- [x] cache=none does not work. It uses unbounded cache as default which is incorrect.
 - [-] open-source
   - [x] write README with badges
   - [ ] Travis tests etc
