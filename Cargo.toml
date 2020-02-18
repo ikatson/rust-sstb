@@ -1,20 +1,11 @@
 [package]
 name = "sstb"
-version = "0.2.1-alpha"
+version = "0.2.2-alpha"
 authors = ["Igor Katson <igor.katson@gmail.com>"]
 edition = "2018"
 license = "MIT"
-description = """
-An experimental an educational attempt to write a Rust thread-safe sstables library.
-
-This was created as a learning excercise, to learn Rust, get some fair share of low-level
-programming, optimization, to learn how sstables work and how to make them faster.
-
-Inside are some working implementations that pass the tests, are thread-safe and concurrent,
-and even run smooth in benchmarks.
-
-For more information and usage examples, [read the docs](https://docs.rs/sstb).
-"""
+description = "A thread-safe sstables library"
+readme = "./README.md"
 documentation = "https://docs.rs/sstb"
 homepage = "https://docs.rs/sstb"
 repository = "https://github.com/ikatson/rust-sstb"
