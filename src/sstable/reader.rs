@@ -442,7 +442,7 @@ impl ConcurrentInnerReader {
             Some(mmap) => Box::new(page_cache::StaticBufCache::new(mmap)),
             None => Box::new(concurrent_page_cache::FileBackedPageCache::new(
                 file,
-                opts.cache.clone().unwrap_or_default(),
+                opts.cache.clone(),
                 num_cpus,
             )),
         };
@@ -452,14 +452,14 @@ impl ConcurrentInnerReader {
                 Compression::None => pc,
                 Compression::Zlib => {
                     let dec = compression::ZlibUncompress {};
-                    let cache = opts.cache.clone().unwrap_or_default();
+                    let cache = opts.cache.clone();
                     let wrapped =
                         concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)
                 }
                 Compression::Snappy => {
                     let dec = compression::SnappyUncompress {};
-                    let cache = opts.cache.clone().unwrap_or_default();
+                    let cache = opts.cache.clone();
                     let wrapped =
                         concurrent_page_cache::WrappedCache::new(pc, dec, cache, num_cpus);
                     Box::new(wrapped)

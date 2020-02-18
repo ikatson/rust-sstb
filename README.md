@@ -10,6 +10,7 @@ See the [documentation](https://docs.rs/sstb) for more details and background.
 
 
 # TODO ([x] means done)
+- [ ] cache=none does not work. It uses unbounded cache as default which is incorrect.
 - [-] open-source
   - [x] write README with badges
   - [ ] Travis tests etc

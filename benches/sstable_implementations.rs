@@ -124,6 +124,14 @@ fn criterion_benchmark(c: &mut Criterion) {
                 .clone(),
         ),
         (
+            "no_mmap,compress=snappy,flush=8192,nocache",
+            make_write_opts(Compression::Snappy, 8192),
+            ReadOptions::default()
+                .cache(None)
+                .use_mmap(false)
+                .clone(),
+        ),
+        (
             "no_mmap,compress=snappy,flush=8192,cache=unbounded",
             make_write_opts(Compression::Snappy, 8192),
             ReadOptions::default()
@@ -201,9 +209,11 @@ fn criterion_benchmark(c: &mut Criterion) {
     // Test multithreaded.
     let mut group = c.benchmark_group("method=get_multithreaded, 100 000 items");
     let size = 100_000;
+
+    // Enabling throughput measuring here does not create a line chart somehow.
     // group.throughput(Throughput::Elements(size as u64));
 
-    for threads in 1..=num_cpus::get() {
+    for threads in 1..=num_cpus::get_physical() {
         let state = TestState::new(32, size);
         state
             .write_sstable(filename, &make_write_opts(Compression::None, 4096))

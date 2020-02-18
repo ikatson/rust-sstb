@@ -47,7 +47,7 @@ pub struct FileBackedPageCache {
 }
 
 impl FileBackedPageCache {
-    pub fn new(file: File, cache: ReadCache, count: usize) -> Self {
+    pub fn new(file: File, cache: Option<ReadCache>, count: usize) -> Self {
         Self {
             file,
             caches: ConcurrentLRUCache::new(count, cache),
@@ -73,7 +73,7 @@ pub struct WrappedCache<PC, U> {
 }
 
 impl<PC, U> WrappedCache<PC, U> {
-    pub fn new(inner: PC, uncompress: U, cache: ReadCache, count: usize) -> Self {
+    pub fn new(inner: PC, uncompress: U, cache: Option<ReadCache>, count: usize) -> Self {
         Self {
             inner,
             caches: ConcurrentLRUCache::new(count, cache),

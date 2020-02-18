@@ -42,15 +42,15 @@ impl Inner {
 ///
 /// Works by sharding the single-threaded LRUCache into multiple shards.
 pub struct ConcurrentLRUCache {
-    caches: Vec<Mutex<lru::LruCache<u64, Arc<Inner>>>>,
+    caches: Option<Vec<Mutex<lru::LruCache<u64, Arc<Inner>>>>>,
 }
 
 impl ConcurrentLRUCache {
-    pub fn new(shards: usize, cache: ReadCache) -> Self {
+    pub fn new(shards: usize, cache: Option<ReadCache>) -> Self {
         Self {
-            caches: core::iter::repeat_with(|| Mutex::new(cache.lru()))
+            caches: cache.map(|cache| core::iter::repeat_with(|| Mutex::new(cache.lru()))
                 .take(shards)
-                .collect(),
+                .collect()),
         }
     }
 
@@ -64,15 +64,20 @@ impl ConcurrentLRUCache {
     where
         F: Fn() -> Result<Bytes>,
     {
+        let caches = match self.caches.as_ref() {
+            Some(caches) => caches,
+            None => return func()
+        };
+
         let mut hasher = DefaultHasher::new();
         offset.hash(&mut hasher);
         // it's ok to truncate the hash.
         #[allow(clippy::cast_possible_truncation)]
         let hash = hasher.finish() as usize;
-        let idx = hash % self.caches.len();
+        let idx = hash % caches.len();
 
         let inner = {
-            let mut lru = unsafe { self.caches.get_unchecked(idx) }.lock();
+            let mut lru = unsafe { caches.get_unchecked(idx) }.lock();
             match lru.get(&offset) {
                 Some(inner) => inner.clone(),
                 None => {
