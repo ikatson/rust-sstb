@@ -66,6 +66,10 @@ impl TestState {
         &self.shuffled
     }
 
+    fn get_input_iter(&self) -> SortedBytesIterator {
+        self.sorted_iter.clone()
+    }
+
     fn write_sstable(&self, filename: &str, write_opts: &WriteOptions) -> Result<()> {
         let mut iter = self.sorted_iter.clone();
 
@@ -77,6 +81,115 @@ impl TestState {
 
         writer.finish()
     }
+}
+
+fn compare_with_others(c: &mut Criterion) {
+    let mut group = c.benchmark_group("compare with alternatives");
+    let size = 100_000;
+    let state = TestState::new(32, size);
+
+    let threads = num_cpus::get_physical();
+    let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+
+    use rocksdb::DB;
+
+    let path = "/tmp/sstb";
+    let rocks_path = "/tmp/rocksdb-rust-lsm";
+
+    group.bench_function(
+        BenchmarkId::new("rocksdb", threads),
+        |b| {
+            b.iter_batched(
+                || {
+                    std::fs::remove_dir_all(rocks_path).unwrap();
+                    let db = DB::open_default(rocks_path).unwrap();
+                    let mut iter = state.get_input_iter();
+                    while let Some(val) = iter.next() {
+                        db.put(val, val).unwrap();
+                    }
+                    db.flush().unwrap();
+                    db
+                },
+                |db| {
+                    pool.install(|| {
+                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                            let KV { key, is_present } = &kv;
+                            let key = key as &[u8];
+
+                            let value = db.get_pinned(key).unwrap();
+                            if *is_present {
+                                assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
+                            } else {
+                                assert!(value.is_none());
+                            }
+                        });
+                    });
+                },
+                BatchSize::LargeInput,
+            );
+        },
+    );
+
+    group.bench_function(
+        BenchmarkId::new("sstb", threads),
+        |b| {
+            b.iter_batched(
+                || {
+                    state.write_sstable(path, &WriteOptions::default()).unwrap();
+                    MmapUncompressedSSTableReader::new(path).unwrap()
+                },
+                |db| {
+                    pool.install(|| {
+                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                            let KV { key, is_present } = &kv;
+                            let key = key as &[u8];
+
+                            let value = db.get(key).unwrap();
+                            if *is_present {
+                                assert_eq!(value, Some(key));
+                            } else {
+                                assert_eq!(value, None);
+                            }
+                        });
+                    });
+                },
+                BatchSize::LargeInput,
+            );
+        },
+    );
+
+    group.bench_function(
+        BenchmarkId::new("sstb-snappy", threads),
+        |b| {
+            b.iter_batched(
+                || {
+                    state.write_sstable(path, WriteOptions::new().compression(Compression::Snappy)).unwrap();
+                    ConcurrentSSTableReader::new(path).unwrap()
+                },
+                |db| {
+                    pool.install(|| {
+                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                            let KV { key, is_present } = &kv;
+                            let key = key as &[u8];
+
+                            let value = db.get(key).unwrap();
+                            if *is_present {
+                                assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
+                            } else {
+                                assert_eq!(value, None);
+                            }
+                        });
+                    });
+                },
+                BatchSize::LargeInput,
+            );
+        },
+    );
+
+    group.finish()
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
@@ -283,7 +396,7 @@ fn default_criterion() -> Criterion {
 criterion_group! {
     name = sstable;
     config = default_criterion();
-    targets = criterion_benchmark
+    targets = criterion_benchmark, compare_with_others
 }
 
 criterion_main!(sstable);
