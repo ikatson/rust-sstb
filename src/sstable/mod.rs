@@ -110,13 +110,13 @@ mod tests {
         crossbeam::scope(|s| {
             s.spawn(|_| {
                 assert_eq!(
-                    reader.get(b"foo").unwrap().as_ref().map(|v| v.as_ref()),
+                    reader.get(b"foo").unwrap().as_deref(),
                     Some(b"some foo" as &[u8])
                 );
             });
             s.spawn(|_| {
                 assert_eq!(
-                    reader.get(b"bar").unwrap().as_ref().map(|v| v.as_ref()),
+                    reader.get(b"bar").unwrap().as_deref(),
                     Some(b"some bar" as &[u8])
                 );
             });

@@ -135,7 +135,7 @@ fn compare_with_others(c: &mut Criterion) {
 
                                     let value = db.get_pinned(key).unwrap();
                                     if *is_present {
-                                        assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
+                                        assert_eq!(value.as_deref(), Some(key));
                                     } else {
                                         assert!(value.is_none());
                                     }
@@ -188,7 +188,7 @@ fn compare_with_others(c: &mut Criterion) {
 
                                 let value = db.get(key).unwrap();
                                 if *is_present {
-                                    assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
+                                    assert_eq!(value.as_deref(), Some(key));
                                 } else {
                                     assert_eq!(value, None);
                                 }
@@ -386,7 +386,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                                 let key = key as &[u8];
                                 let value = reader.get(key).unwrap();
                                 if *is_present {
-                                    assert_eq!(value.as_ref().map(|b| b.as_ref()), Some(key));
+                                    assert_eq!(value.as_deref(), Some(key));
                                 } else {
                                     assert_eq!(value, None);
                                 }
