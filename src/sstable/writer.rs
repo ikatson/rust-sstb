@@ -2,10 +2,10 @@
 //!
 //! Look at the documentation for available writers for usage examples.
 
+use std::convert::TryFrom;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::{Seek, SeekFrom, Write};
-
 use std::path::Path;
 
 use bincode;
@@ -43,7 +43,7 @@ pub trait RawSSTableWriter {
 /// ```
 pub struct SSTableWriterV2 {
     file: PosWriter<Box<dyn CompressionContextWriter<PosWriter<BufWriter<File>>>>>,
-    meta: MetaV2_0,
+    meta: MetaV3_0,
     meta_start: u64,
     data_start: u64,
     flush_every: usize,
@@ -62,11 +62,11 @@ impl SSTableWriterV2 {
         let mut writer = PosWriter::new(BufWriter::new(file), 0);
         writer.write_all(MAGIC)?;
 
-        bincode::serialize_into(&mut writer, &VERSION_20)?;
+        bincode::serialize_into(&mut writer, &VERSION_30)?;
 
         let meta_start = writer.current_offset() as u64;
 
-        let mut meta = MetaV2_0::default();
+        let mut meta = MetaV3_0::default();
         meta.compression = options.compression;
 
         bincode::serialize_into(&mut writer, &meta)?;
@@ -95,7 +95,10 @@ impl SSTableWriterV2 {
             data_start,
             flush_every: options.flush_every,
             sparse_index: Vec::new(),
-            bloom: Bloom::new(options.bloom.bitmap_size, options.bloom.items_count),
+            bloom: Bloom::new(
+                options.bloom.bitmap_size as usize,
+                options.bloom.items_count,
+            ),
         })
     }
     /// Write all the metadata to the sstable, and flush it.
@@ -123,7 +126,7 @@ impl SSTableWriterV2 {
                 meta.index_len = bloom_start - index_start;
                 meta.data_len = index_start - data_start;
                 meta.bloom_len = end - bloom_start;
-                meta.bloom.bitmap_bits = bloom.number_of_bits();
+                meta.bloom.bitmap_bytes = u32::try_from(bloom.number_of_bits() / 8)?;
                 meta.bloom.k_num = bloom.number_of_hash_functions();
                 meta.bloom.sip_keys = bloom.sip_keys();
                 let mut writer = writer.into_inner()?.into_inner();

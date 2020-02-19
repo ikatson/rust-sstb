@@ -34,7 +34,7 @@ use super::types::*;
 use super::{compression, concurrent_page_cache, page_cache, posreader, Error, Result};
 
 enum MetaData {
-    V2_0(MetaV2_0),
+    V3_0(MetaV3_0),
 }
 
 struct MetaResult {
@@ -56,9 +56,9 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
     }
     let version: Version = bincode::deserialize_from(&mut reader)?;
     let meta = match version {
-        VERSION_20 => {
-            let meta: MetaV2_0 = bincode::deserialize_from(&mut reader)?;
-            MetaData::V2_0(meta)
+        VERSION_30 => {
+            let meta: MetaV3_0 = bincode::deserialize_from(&mut reader)?;
+            MetaData::V3_0(meta)
         }
         _ => return Err(Error::UnsupportedVersion(version)),
     };
@@ -71,18 +71,14 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
 }
 
 /// Read the bloom filter from a reader.
-fn read_bloom<R: Read>(mut reader: R, config: &BloomV2_0) -> Result<Bloom<[u8]>> {
-    if config.bitmap_bits % 8 != 0 {
-        // The number of bits in the bitmap should be divisible by 8.
-        return Err(INVALID_DATA);
-    }
-    let len_bytes = usize::try_from(config.bitmap_bits / 8)?;
+fn read_bloom<R: Read>(mut reader: R, config: &BloomV3_0) -> Result<Bloom<[u8]>> {
+    let len_bytes = usize::try_from(config.bitmap_bytes)?;
     // I don't think there's a way not to do this allocation.
     let mut buf = vec![0u8; len_bytes];
     reader.read_exact(&mut buf)?;
     Ok(Bloom::from_existing(
         &buf,
-        config.bitmap_bits,
+        config.bitmap_bytes as u64 * 8,
         config.k_num,
         config.sip_keys,
     ))
@@ -210,7 +206,7 @@ struct InnerReader {
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
     page_cache: Box<dyn page_cache::PageCache>,
-    meta: MetaV2_0,
+    meta: MetaV3_0,
     data_start: u64,
     use_bloom_default: bool,
     bloom: Bloom<[u8]>,
@@ -225,7 +221,7 @@ impl InnerReader {
     ) -> Result<Self> {
         #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
-            MetaData::V2_0(meta) => meta,
+            MetaData::V3_0(meta) => meta,
         };
 
         let index_start = data_start + (meta.data_len as u64);
@@ -355,7 +351,7 @@ struct ConcurrentInnerReader {
     // This is just to hold an mmap reference to be dropped in the end.
     _mmap: Option<memmap::Mmap>,
     page_cache: Box<dyn concurrent_page_cache::ConcurrentPageCache + Sync + Send>,
-    meta: MetaV2_0,
+    meta: MetaV3_0,
     data_start: u64,
     use_bloom_default: bool,
     bloom: Bloom<[u8]>,
@@ -370,7 +366,7 @@ impl ConcurrentInnerReader {
     ) -> Result<Self> {
         #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
-            MetaData::V2_0(meta) => meta,
+            MetaData::V3_0(meta) => meta,
         };
 
         let index_start = data_start + (meta.data_len as u64);
@@ -593,7 +589,7 @@ impl MmapUncompressedSSTableReader {
 
         #[allow(clippy::infallible_destructuring_match)]
         let meta = match meta.meta {
-            MetaData::V2_0(meta) => meta,
+            MetaData::V3_0(meta) => meta,
         };
 
         if meta.compression != Compression::None {

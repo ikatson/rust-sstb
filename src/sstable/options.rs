@@ -5,7 +5,7 @@ use lru::LruCache;
 // The configuration for the bloom filter.
 #[derive(Debug, Copy, Clone)]
 pub struct BloomConfig {
-    pub bitmap_size: usize,
+    pub bitmap_size: u32,
     pub items_count: usize,
 }
 

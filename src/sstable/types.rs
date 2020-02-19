@@ -1,4 +1,4 @@
-pub const VERSION_20: Version = Version { major: 2, minor: 0 };
+pub const VERSION_30: Version = Version { major: 3, minor: 0 };
 
 use serde::{Deserialize, Serialize};
 

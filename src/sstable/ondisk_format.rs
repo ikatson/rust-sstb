@@ -84,14 +84,14 @@ impl KVOffset {
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
-pub struct BloomV2_0 {
-    pub bitmap_bits: u64,
+pub struct BloomV3_0 {
+    pub bitmap_bytes: u32,
     pub k_num: u32,
     pub sip_keys: [(u64, u64); 2],
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
-pub struct MetaV2_0 {
+pub struct MetaV3_0 {
     pub data_len: u64,
     pub index_len: u64,
     pub bloom_len: u64,
@@ -101,7 +101,7 @@ pub struct MetaV2_0 {
     // it's presence indicates that the file is good.
     pub finished: bool,
     pub checksum: u32,
-    pub bloom: BloomV2_0,
+    pub bloom: BloomV3_0,
 }
 
 /// Find the key in the chunk by scanning sequentially.
