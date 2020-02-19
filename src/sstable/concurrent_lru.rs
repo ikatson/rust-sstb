@@ -48,9 +48,11 @@ pub struct ConcurrentLRUCache {
 impl ConcurrentLRUCache {
     pub fn new(shards: usize, cache: Option<ReadCache>) -> Self {
         Self {
-            caches: cache.map(|cache| core::iter::repeat_with(|| Mutex::new(cache.lru()))
-                .take(shards)
-                .collect()),
+            caches: cache.map(|cache| {
+                core::iter::repeat_with(|| Mutex::new(cache.lru()))
+                    .take(shards)
+                    .collect()
+            }),
         }
     }
 
@@ -66,7 +68,7 @@ impl ConcurrentLRUCache {
     {
         let caches = match self.caches.as_ref() {
             Some(caches) => caches,
-            None => return func()
+            None => return func(),
         };
 
         let mut hasher = DefaultHasher::new();

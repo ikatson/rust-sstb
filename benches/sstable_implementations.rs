@@ -88,7 +88,7 @@ fn compare_with_others(c: &mut Criterion) {
     let size = 100_000;
     let state = TestState::new(32, size);
 
-    use rocksdb::{DB, Options, DBCompressionType};
+    use rocksdb::{DBCompressionType, Options, DB};
 
     let path = "/tmp/sstb";
     let rocks_path = "/tmp/rocksdb-rust-lsm";
@@ -111,8 +111,10 @@ fn compare_with_others(c: &mut Criterion) {
                 let mut opts = Options::default();
                 opts.create_if_missing(true);
                 opts
-            })
-        ].iter() {
+            }),
+        ]
+        .iter()
+        {
             {
                 std::fs::remove_dir_all(rocks_path).unwrap();
                 let db = DB::open(opts, rocks_path).unwrap();
@@ -122,30 +124,27 @@ fn compare_with_others(c: &mut Criterion) {
                 }
                 db.flush().unwrap();
             };
-            group.bench_function(
-                BenchmarkId::new(*name, threads),
-                |b| {
-                    b.iter_batched(
-                        || DB::open(opts, rocks_path).unwrap(),
-                        |db| {
-                            pool.install(|| {
-                                state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                                    let KV { key, is_present } = &kv;
-                                    let key = key as &[u8];
+            group.bench_function(BenchmarkId::new(*name, threads), |b| {
+                b.iter_batched(
+                    || DB::open(opts, rocks_path).unwrap(),
+                    |db| {
+                        pool.install(|| {
+                            state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                                let KV { key, is_present } = &kv;
+                                let key = key as &[u8];
 
-                                    let value = db.get_pinned(key).unwrap();
-                                    if *is_present {
-                                        assert_eq!(value.as_deref(), Some(key));
-                                    } else {
-                                        assert!(value.is_none());
-                                    }
-                                });
+                                let value = db.get_pinned(key).unwrap();
+                                if *is_present {
+                                    assert_eq!(value.as_deref(), Some(key));
+                                } else {
+                                    assert!(value.is_none());
+                                }
                             });
-                        },
-                        BatchSize::LargeInput,
-                    );
-                },
-            );
+                        });
+                    },
+                    BatchSize::LargeInput,
+                );
+            });
         }
 
         state.write_sstable(path, &WriteOptions::default()).unwrap();
@@ -174,31 +173,30 @@ fn compare_with_others(c: &mut Criterion) {
             },
         );
 
-        state.write_sstable(path, WriteOptions::new().compression(Compression::Snappy)).unwrap();
-        group.bench_function(
-            BenchmarkId::new("sstb,mmap-reads,snappy", threads),
-            |b| {
-                b.iter_batched(
-                    || ConcurrentSSTableReader::new(path).unwrap(),
-                    |db| {
-                        pool.install(|| {
-                            state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                                let KV { key, is_present } = &kv;
-                                let key = key as &[u8];
+        state
+            .write_sstable(path, WriteOptions::new().compression(Compression::Snappy))
+            .unwrap();
+        group.bench_function(BenchmarkId::new("sstb,mmap-reads,snappy", threads), |b| {
+            b.iter_batched(
+                || ConcurrentSSTableReader::new(path).unwrap(),
+                |db| {
+                    pool.install(|| {
+                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                            let KV { key, is_present } = &kv;
+                            let key = key as &[u8];
 
-                                let value = db.get(key).unwrap();
-                                if *is_present {
-                                    assert_eq!(value.as_deref(), Some(key));
-                                } else {
-                                    assert_eq!(value, None);
-                                }
-                            });
+                            let value = db.get(key).unwrap();
+                            if *is_present {
+                                assert_eq!(value.as_deref(), Some(key));
+                            } else {
+                                assert_eq!(value, None);
+                            }
                         });
-                    },
-                    BatchSize::LargeInput,
-                );
-            },
-        );
+                    });
+                },
+                BatchSize::LargeInput,
+            );
+        });
     }
 
     group.finish()
@@ -251,10 +249,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         (
             "no_mmap,compress=snappy,flush=8192,nocache",
             make_write_opts(Compression::Snappy, 8192),
-            ReadOptions::default()
-                .cache(None)
-                .use_mmap(false)
-                .clone(),
+            ReadOptions::default().cache(None).use_mmap(false).clone(),
         ),
         (
             "no_mmap,compress=snappy,flush=8192,cache=unbounded",
@@ -264,7 +259,6 @@ fn criterion_benchmark(c: &mut Criterion) {
                 .use_mmap(false)
                 .clone(),
         ),
-
         // ("mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: true}),
         // ("no_mmap,compress=zlib,flush=65536,cache=32", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
         // ("no_mmap,compress=zlib,flush=65536,cache=unbounded", make_write_opts(Compression::Snappy, 8192), ReadOptions{cache: Some(ReadCache::Blocks(32)), use_mmap: false}),
@@ -272,8 +266,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     // Test single-threaded.
     let mut group = c.benchmark_group("method=get");
-    let plot_config = PlotConfiguration::default()
-        .summary_scale(AxisScale::Logarithmic);
+    let plot_config = PlotConfiguration::default().summary_scale(AxisScale::Logarithmic);
     group.plot_config(plot_config);
 
     for size in [100, 1000, 10_000, 100_000].iter() {
