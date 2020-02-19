@@ -24,12 +24,15 @@ struct TestState {
 }
 
 impl TestState {
-    fn new(len: usize, limit: usize) -> Self {
+    fn new(len: usize, limit: usize, percent_missing: f32) -> Self {
         let mut it = SortedBytesIterator::new(len, limit).unwrap();
         let shuffled = {
             let mut shuffled: Vec<KV> = Vec::with_capacity(limit * 2);
             let mut small_rng = SmallRng::from_seed(*b"seedseedseedseed");
-            let missing_threshold = u32::max_value() / 2;
+            if percent_missing > 1f32 || percent_missing < 0f32 {
+                panic!("expected 0 <= percent_missing <= 1")
+            };
+            let missing_threshold = (u32::max_value() as f32 * percent_missing) as u32;
             while let Some(value) = it.next() {
                 if small_rng.next_u32() > missing_threshold {
                     let mut val = value.to_owned();
@@ -84,16 +87,12 @@ impl TestState {
 }
 
 fn compare_with_others(c: &mut Criterion) {
-    let mut group = c.benchmark_group("compare with alternatives");
     let size = 100_000;
-    let state = TestState::new(32, size);
-
     use rocksdb::{DBCompressionType, Options, DB};
-
     let path = "/tmp/sstb";
     let rocks_path = "/tmp/rocksdb-rust-lsm";
 
-    for threads in 1..=num_cpus::get_physical() {
+    let bench = |group: &mut BenchmarkGroup<_>, state: &TestState, suffix: f32, threads| {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .build()
@@ -124,7 +123,7 @@ fn compare_with_others(c: &mut Criterion) {
                 }
                 db.flush().unwrap();
             };
-            group.bench_function(BenchmarkId::new(*name, threads), |b| {
+            group.bench_function(BenchmarkId::new(*name, suffix), |b| {
                 b.iter_batched(
                     || DB::open(opts, rocks_path).unwrap(),
                     |db| {
@@ -147,12 +146,19 @@ fn compare_with_others(c: &mut Criterion) {
             });
         }
 
-        state.write_sstable(path, &WriteOptions::default()).unwrap();
-        group.bench_function(
-            BenchmarkId::new("sstb,mmap-reads,no-compression", threads),
-            |b| {
+        for (name, opts) in [
+            ("sstb,mmap-reads,no-compression", &WriteOptions::default()),
+            (
+                "sstb,mmap-reads,snappy",
+                WriteOptions::default().compression(Compression::Snappy),
+            ),
+        ]
+        .iter()
+        {
+            state.write_sstable(path, opts).unwrap();
+            group.bench_function(BenchmarkId::new(*name, suffix), |b| {
                 b.iter_batched(
-                    || MmapUncompressedSSTableReader::new(path).unwrap(),
+                    || ConcurrentSSTableReader::new(path).unwrap(),
                     |db| {
                         pool.install(|| {
                             state.get_shuffled_input_ref().par_iter().for_each(|kv| {
@@ -161,7 +167,7 @@ fn compare_with_others(c: &mut Criterion) {
 
                                 let value = db.get(key).unwrap();
                                 if *is_present {
-                                    assert_eq!(value, Some(key));
+                                    assert_eq!(value.as_deref(), Some(key));
                                 } else {
                                     assert_eq!(value, None);
                                 }
@@ -170,35 +176,24 @@ fn compare_with_others(c: &mut Criterion) {
                     },
                     BatchSize::LargeInput,
                 );
-            },
-        );
+            });
+        }
+    };
 
-        state
-            .write_sstable(path, WriteOptions::new().compression(Compression::Snappy))
-            .unwrap();
-        group.bench_function(BenchmarkId::new("sstb,mmap-reads,snappy", threads), |b| {
-            b.iter_batched(
-                || ConcurrentSSTableReader::new(path).unwrap(),
-                |db| {
-                    pool.install(|| {
-                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                            let KV { key, is_present } = &kv;
-                            let key = key as &[u8];
-
-                            let value = db.get(key).unwrap();
-                            if *is_present {
-                                assert_eq!(value.as_deref(), Some(key));
-                            } else {
-                                assert_eq!(value, None);
-                            }
-                        });
-                    });
-                },
-                BatchSize::LargeInput,
-            );
-        });
+    let mut group = c.benchmark_group("compare with alternatives - threads");
+    let state = TestState::new(32, size, 0.5);
+    for threads in 1..=num_cpus::get_physical() {
+        bench(&mut group, &state, threads as f32, threads);
     }
+    group.finish();
 
+    let mut group = c.benchmark_group("compare with alternatives - percent missing");
+    for percent_missing in [0.1, 0.2, 0.4, 0.8, 0.95, 1.].iter() {
+        let state = TestState::new(32, size, *percent_missing);
+        let threads = num_cpus::get_physical();
+
+        bench(&mut group, &state, *percent_missing, threads);
+    }
     group.finish()
 }
 
@@ -270,7 +265,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.plot_config(plot_config);
 
     for size in [100, 1000, 10_000, 100_000].iter() {
-        let state = TestState::new(32, *size);
+        let state = TestState::new(32, *size, 0.5);
         group.throughput(Throughput::Elements(*size as u64));
         state
             .write_sstable(filename, &make_write_opts(Compression::None, 4096))
@@ -332,7 +327,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // group.throughput(Throughput::Elements(size as u64));
 
     for threads in 1..=num_cpus::get_physical() {
-        let state = TestState::new(32, size);
+        let state = TestState::new(32, size, 0.5);
         state
             .write_sstable(filename, &make_write_opts(Compression::None, 4096))
             .unwrap();
