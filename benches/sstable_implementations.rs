@@ -88,106 +88,118 @@ fn compare_with_others(c: &mut Criterion) {
     let size = 100_000;
     let state = TestState::new(32, size);
 
-    let threads = num_cpus::get_physical();
-    let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
-
-    use rocksdb::DB;
+    use rocksdb::{DB, Options, DBCompressionType};
 
     let path = "/tmp/sstb";
     let rocks_path = "/tmp/rocksdb-rust-lsm";
 
-    group.bench_function(
-        BenchmarkId::new("rocksdb", threads),
-        |b| {
-            b.iter_batched(
-                || {
-                    std::fs::remove_dir_all(rocks_path).unwrap();
-                    let db = DB::open_default(rocks_path).unwrap();
-                    let mut iter = state.get_input_iter();
-                    while let Some(val) = iter.next() {
-                        db.put(val, val).unwrap();
-                    }
-                    db.flush().unwrap();
-                    db
-                },
-                |db| {
-                    pool.install(|| {
-                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                            let KV { key, is_present } = &kv;
-                            let key = key as &[u8];
+    for threads in 1..=num_cpus::get_physical() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
 
-                            let value = db.get_pinned(key).unwrap();
-                            if *is_present {
-                                assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
-                            } else {
-                                assert!(value.is_none());
-                            }
-                        });
-                    });
+        for (name, opts) in [
+            ("rocksdb,mmap-reads,no-compression", {
+                let mut opts = Options::default();
+                opts.set_compression_type(DBCompressionType::None);
+                opts.set_allow_mmap_reads(true);
+                opts.create_if_missing(true);
+                opts
+            }),
+            ("rocksdb,default", {
+                let mut opts = Options::default();
+                opts.create_if_missing(true);
+                opts
+            })
+        ].iter() {
+            {
+                std::fs::remove_dir_all(rocks_path).unwrap();
+                let db = DB::open(opts, rocks_path).unwrap();
+                let mut iter = state.get_input_iter();
+                while let Some(val) = iter.next() {
+                    db.put(val, val).unwrap();
+                }
+                db.flush().unwrap();
+            };
+            group.bench_function(
+                BenchmarkId::new(*name, threads),
+                |b| {
+                    b.iter_batched(
+                        || DB::open(opts, rocks_path).unwrap(),
+                        |db| {
+                            pool.install(|| {
+                                state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                                    let KV { key, is_present } = &kv;
+                                    let key = key as &[u8];
+
+                                    let value = db.get_pinned(key).unwrap();
+                                    if *is_present {
+                                        assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
+                                    } else {
+                                        assert!(value.is_none());
+                                    }
+                                });
+                            });
+                        },
+                        BatchSize::LargeInput,
+                    );
                 },
-                BatchSize::LargeInput,
             );
-        },
-    );
+        }
 
-    group.bench_function(
-        BenchmarkId::new("sstb", threads),
-        |b| {
-            b.iter_batched(
-                || {
-                    state.write_sstable(path, &WriteOptions::default()).unwrap();
-                    MmapUncompressedSSTableReader::new(path).unwrap()
-                },
-                |db| {
-                    pool.install(|| {
-                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                            let KV { key, is_present } = &kv;
-                            let key = key as &[u8];
+        state.write_sstable(path, &WriteOptions::default()).unwrap();
+        group.bench_function(
+            BenchmarkId::new("sstb,mmap-reads,no-compression", threads),
+            |b| {
+                b.iter_batched(
+                    || MmapUncompressedSSTableReader::new(path).unwrap(),
+                    |db| {
+                        pool.install(|| {
+                            state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                                let KV { key, is_present } = &kv;
+                                let key = key as &[u8];
 
-                            let value = db.get(key).unwrap();
-                            if *is_present {
-                                assert_eq!(value, Some(key));
-                            } else {
-                                assert_eq!(value, None);
-                            }
+                                let value = db.get(key).unwrap();
+                                if *is_present {
+                                    assert_eq!(value, Some(key));
+                                } else {
+                                    assert_eq!(value, None);
+                                }
+                            });
                         });
-                    });
-                },
-                BatchSize::LargeInput,
-            );
-        },
-    );
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        );
 
-    group.bench_function(
-        BenchmarkId::new("sstb-snappy", threads),
-        |b| {
-            b.iter_batched(
-                || {
-                    state.write_sstable(path, WriteOptions::new().compression(Compression::Snappy)).unwrap();
-                    ConcurrentSSTableReader::new(path).unwrap()
-                },
-                |db| {
-                    pool.install(|| {
-                        state.get_shuffled_input_ref().par_iter().for_each(|kv| {
-                            let KV { key, is_present } = &kv;
-                            let key = key as &[u8];
+        state.write_sstable(path, WriteOptions::new().compression(Compression::Snappy)).unwrap();
+        group.bench_function(
+            BenchmarkId::new("sstb,mmap-reads,snappy", threads),
+            |b| {
+                b.iter_batched(
+                    || ConcurrentSSTableReader::new(path).unwrap(),
+                    |db| {
+                        pool.install(|| {
+                            state.get_shuffled_input_ref().par_iter().for_each(|kv| {
+                                let KV { key, is_present } = &kv;
+                                let key = key as &[u8];
 
-                            let value = db.get(key).unwrap();
-                            if *is_present {
-                                assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
-                            } else {
-                                assert_eq!(value, None);
-                            }
+                                let value = db.get(key).unwrap();
+                                if *is_present {
+                                    assert_eq!(value.as_ref().map(|v| v.as_ref()), Some(key));
+                                } else {
+                                    assert_eq!(value, None);
+                                }
+                            });
                         });
-                    });
-                },
-                BatchSize::LargeInput,
-            );
-        },
-    );
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        );
+    }
 
     group.finish()
 }
