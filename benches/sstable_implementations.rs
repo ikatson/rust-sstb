@@ -29,12 +29,16 @@ impl TestState {
         let shuffled = {
             let mut shuffled: Vec<KV> = Vec::with_capacity(limit * 2);
             let mut small_rng = SmallRng::from_seed(*b"seedseedseedseed");
-            if percent_missing > 1f32 || percent_missing < 0f32 {
-                panic!("expected 0 <= percent_missing <= 1")
+            let missing_threshold = u32::max_value() as f64 * percent_missing as f64;
+            let missing_threshold = if missing_threshold > u32::max_value() as f64 {
+                u32::max_value()
+            } else if missing_threshold < 0. {
+                0
+            } else {
+                missing_threshold as u32
             };
-            let missing_threshold = (u32::max_value() as f32 * percent_missing) as u32;
             while let Some(value) = it.next() {
-                if small_rng.next_u32() > missing_threshold {
+                if small_rng.next_u32() < missing_threshold {
                     let mut val = value.to_owned();
                     // whatever we push, it will alter the length and will be missing
                     val.push(ANY_BYTE);
@@ -42,11 +46,12 @@ impl TestState {
                         key: val,
                         is_present: false,
                     });
+                } else {
+                    shuffled.push(KV {
+                        key: value.into(),
+                        is_present: true,
+                    })
                 }
-                shuffled.push(KV {
-                    key: value.into(),
-                    is_present: true,
-                })
             }
 
             (&mut shuffled).shuffle(&mut small_rng);
