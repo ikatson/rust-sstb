@@ -72,12 +72,13 @@ fn read_metadata<B: Read + Seek>(mut file: B) -> Result<MetaResult> {
 
 /// Read the bloom filter from a reader.
 fn read_bloom<R: Read>(mut reader: R, config: &BloomV2_0) -> Result<Bloom<[u8]>> {
-    if config.bitmap_bits & 7 > 0 {
+    if config.bitmap_bits % 8 != 0 {
+        // The number of bits in the bitmap should be divisible by 8.
         return Err(INVALID_DATA);
     }
-    let len = usize::try_from(config.bitmap_bits >> 3)?;
+    let len_bytes = usize::try_from(config.bitmap_bits / 8)?;
     // I don't think there's a way not to do this allocation.
-    let mut buf = vec![0u8; len];
+    let mut buf = vec![0u8; len_bytes];
     reader.read_exact(&mut buf)?;
     Ok(Bloom::from_existing(
         &buf,
