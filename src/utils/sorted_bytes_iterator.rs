@@ -60,7 +60,7 @@ impl Clone for SortedBytesIterator {
     fn clone(&self) -> Self {
         let length = self.buf.len();
         Self {
-            buf: core::iter::repeat(self.first).take(length).collect(),
+            buf: vec![self.first; length],
             current: length,
             first: self.first,
             last: self.last,
@@ -95,7 +95,7 @@ impl SortedBytesIterator {
         if last <= first {
             return Err(Error::ProgrammingError("expected last > first"));
         }
-        let buf = core::iter::repeat(first).take(length).collect();
+        let buf = vec![first; length];
         Ok(Self {
             buf,
             current: length,

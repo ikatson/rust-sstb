@@ -48,11 +48,7 @@ pub struct ConcurrentLRUCache {
 impl ConcurrentLRUCache {
     pub fn new(shards: usize, cache: Option<ReadCache>) -> Self {
         Self {
-            caches: cache.map(|cache| {
-                core::iter::repeat_with(|| Mutex::new(cache.lru()))
-                    .take(shards)
-                    .collect()
-            }),
+            caches: cache.map(|cache| (0..shards).map(|_| Mutex::new(cache.lru())).collect()),
         }
     }
 
