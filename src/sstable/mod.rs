@@ -84,8 +84,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn write_basic_map(filename: &str, options: WriteOptions) {
-        let mut map = BTreeMap::new();
+        let mut map: BTreeMap<&[u8], &[u8]> = BTreeMap::new();
         map.insert(b"foo", b"some foo");
+        map.insert(b"fail", b"some fail");
         map.insert(b"bar", b"some bar");
         write_btree_map(&map, filename, Some(options)).unwrap();
     }
