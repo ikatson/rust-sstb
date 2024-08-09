@@ -122,7 +122,7 @@ pub fn find_value_offset_v2(buf: &[u8], key: &[u8]) -> Result<Option<(usize, usi
 
     let mut offset = 0;
     while offset < buf.len() {
-        let kvlength = bincode::deserialize::<KVLength>(&buf)?;
+        let kvlength = bincode::deserialize::<KVLength>(&buf[offset..])?;
         let (start_key, cursor) = {
             let key_start = offset + kvlen_encoded_size;
             let key_end = key_start + kvlength.key_length as usize;
